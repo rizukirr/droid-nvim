@@ -257,7 +257,12 @@ end
 
 function M.wait_for_device_id(adb, callback)
     local cfg = config.get()
+
     local timer = vim.loop.new_timer()
+    if timer == nil then
+        return
+    end
+
     local start_time = vim.loop.now()
 
     progress.update_spinner_message "Waiting for device to come online"
@@ -309,7 +314,12 @@ end
 -- Enhanced device waiting that checks both device online status AND boot completion
 function M.wait_for_device_ready(adb, callback)
     local cfg = config.get()
+
     local timer = vim.loop.new_timer()
+    if timer == nil then
+        return
+    end
+
     local start_time = vim.loop.now()
     local device_found = false
     local current_device_id = nil
@@ -507,10 +517,10 @@ function M.get_device_definitions(avdmanager, callback)
     end)
 end
 
-function M.create_emulator()
+local function validate_avdmanager()
     local avdmanager = M.get_avdmanager_path()
     if not avdmanager then
-        return
+        return nil
     end
 
     if vim.fn.executable(avdmanager) ~= 1 then
@@ -518,10 +528,13 @@ function M.create_emulator()
             "avdmanager not found at " .. avdmanager .. ". Install Android SDK Command-line Tools.",
             vim.log.levels.ERROR
         )
-        return
+        return nil
     end
 
-    -- Step 1: Pick system image
+    return avdmanager
+end
+
+local function pick_system_image(callback)
     M.get_installed_system_images(function(images)
         if #images == 0 then
             return
@@ -532,92 +545,111 @@ function M.create_emulator()
             format_item = function(item)
                 return item.display
             end,
-        }, function(image_choice)
-            if not image_choice then
+        }, function(choice)
+            if not choice then
                 return
             end
+            callback(choice)
+        end)
+    end)
+end
 
-            -- Step 2: Pick device definition
-            M.get_device_definitions(avdmanager, function(devices)
-                if #devices == 0 then
-                    return
-                end
+local function pick_device_definition(avdmanager, callback)
+    M.get_device_definitions(avdmanager, function(devices)
+        if #devices == 0 then
+            return
+        end
 
-                vim.ui.select(devices, {
-                    prompt = "Select device definition:",
-                    format_item = function(item)
-                        return item.name
-                    end,
-                }, function(device_choice)
-                    if not device_choice then
-                        return
+        vim.ui.select(devices, {
+            prompt = "Select device definition:",
+            format_item = function(item)
+                return item.name
+            end,
+        }, function(choice)
+            if not choice then
+                return
+            end
+            callback(choice)
+        end)
+    end)
+end
+
+local function prompt_avd_name(image_pkg, device_name, callback)
+    local api_level = image_pkg:match "android%-(%d+)" or "unknown"
+    local default_name = device_name:gsub("%s+", "_") .. "_API_" .. api_level
+
+    vim.ui.input({ prompt = "AVD name: ", default = default_name }, function(name)
+        if not name or name == "" then
+            return
+        end
+
+        name = name:gsub("%s+", "_"):gsub("[^%w_%-.]", "")
+        callback(name)
+    end)
+end
+
+local function run_avd_create(avdmanager, name, image_pkg, device_id)
+    local cmd = {
+        avdmanager,
+        "create",
+        "avd",
+        "-n",
+        name,
+        "-k",
+        image_pkg,
+        "-d",
+        device_id,
+    }
+
+    local env = nil
+    local cfg = config.get()
+    if cfg.android.android_avd_home then
+        env = { ANDROID_AVD_HOME = cfg.android.android_avd_home }
+    end
+
+    vim.notify("Creating emulator: " .. name .. "...", vim.log.levels.INFO)
+
+    local job_id = vim.fn.jobstart(cmd, {
+        env = env,
+        stdin = "pipe",
+        on_stdout = function() end,
+        on_stderr = function(_, data)
+            if data then
+                for _, line in ipairs(data) do
+                    if line:match "Error" or line:match "error" then
+                        vim.schedule(function()
+                            vim.notify("avdmanager: " .. line, vim.log.levels.ERROR)
+                        end)
                     end
+                end
+            end
+        end,
+        on_exit = vim.schedule_wrap(function(_, exit_code)
+            if exit_code == 0 then
+                vim.notify("Emulator created: " .. name, vim.log.levels.INFO)
+            else
+                vim.notify("Failed to create emulator: " .. name, vim.log.levels.ERROR)
+            end
+        end),
+    })
 
-                    -- Step 3: Generate default name and prompt for confirmation
-                    local api_level = image_choice.package:match "android%-(%d+)" or "unknown"
-                    local default_name = device_choice.name:gsub("%s+", "_") .. "_API_" .. api_level
+    if job_id > 0 then
+        vim.defer_fn(function()
+            pcall(vim.fn.chansend, job_id, "no\n")
+        end, 500)
+    end
+end
 
-                    vim.ui.input({ prompt = "AVD name: ", default = default_name }, function(name)
-                        if not name or name == "" then
-                            return
-                        end
+function M.create_emulator()
+    local avdmanager = validate_avdmanager()
+    if not avdmanager then
+        return
+    end
 
-                        -- Sanitize name: replace spaces with underscores, remove special chars
-                        name = name:gsub("%s+", "_"):gsub("[^%w_%-.]", "")
-
-                        -- Step 4: Create the AVD
-                        local cmd = {
-                            avdmanager,
-                            "create",
-                            "avd",
-                            "-n",
-                            name,
-                            "-k",
-                            image_choice.package,
-                            "-d",
-                            device_choice.id,
-                        }
-
-                        local env = nil
-                        local cfg = config.get()
-                        if cfg.android.android_avd_home then
-                            env = { ANDROID_AVD_HOME = cfg.android.android_avd_home }
-                        end
-
-                        vim.notify("Creating emulator: " .. name .. "...", vim.log.levels.INFO)
-
-                        local job_id = vim.fn.jobstart(cmd, {
-                            env = env,
-                            stdin = "pipe",
-                            on_stdout = function() end,
-                            on_stderr = function(_, data)
-                                if data then
-                                    for _, line in ipairs(data) do
-                                        if line:match "Error" or line:match "error" then
-                                            vim.schedule(function()
-                                                vim.notify("avdmanager: " .. line, vim.log.levels.ERROR)
-                                            end)
-                                        end
-                                    end
-                                end
-                            end,
-                            on_exit = vim.schedule_wrap(function(_, exit_code)
-                                if exit_code == 0 then
-                                    vim.notify("Emulator created: " .. name, vim.log.levels.INFO)
-                                else
-                                    vim.notify("Failed to create emulator: " .. name, vim.log.levels.ERROR)
-                                end
-                            end),
-                        })
-
-                        -- Send "no\n" to skip custom hardware profile prompt
-                        if job_id > 0 then
-                            vim.defer_fn(function()
-                                pcall(vim.fn.chansend, job_id, "no\n")
-                            end, 500)
-                        end
-                    end)
-                end)
+    pick_system_image(function(image_choice)
+        pick_device_definition(avdmanager, function(device_choice)
+            prompt_avd_name(image_choice.package, device_choice.name, function(name)
+                run_avd_create(avdmanager, name, image_choice.package, device_choice.id)
             end)
         end)
     end)
