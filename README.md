@@ -11,6 +11,7 @@ Android development workflow for Neovim. Build, run, and debug Android apps with
 - `gradlew` in project root
 - Java 17+ (for jdtls) or Java 21+ (for Kotlin LSP)
 - [scrcpy](https://github.com/Genymobile/scrcpy) (optional, for device mirroring)
+- [`android` CLI](https://developer.android.com/tools/agents/android-cli) (optional; unlocks `:DroidScreenshot`, `:DroidDocs`, and faster emulator/deploy paths via `prefer_for`)
 
 ## SDK Environment Setup
 
@@ -142,6 +143,20 @@ require("droid").setup({
         android_home = nil,                -- override ANDROID_HOME env var
         android_avd_home = nil,            -- override ANDROID_AVD_HOME env var
     },
+    android_cli = {
+        -- "auto" detects the `android` binary on PATH; set to false to
+        -- disable the backend even if installed.
+        enabled = "auto",
+        -- Opt-in flags for capabilities that have both a legacy and a
+        -- CLI path. Defaults are off so installing android-cli never
+        -- changes existing behavior until you flip a flag. The CLI-only
+        -- commands :DroidScreenshot and :DroidDocs always use the CLI
+        -- when available and are not listed here.
+        prefer_for = {
+            emulator = false,              -- :DroidEmulator / Stop / Create
+            deploy = false,                -- :DroidRun uses `android run` (install + launch)
+        },
+    },
 })
 ```
 
@@ -249,6 +264,20 @@ Navigating to a class from a dependency (e.g., go-to-definition on a library sym
 | `:DroidClearData` | Clear app data |
 | `:DroidForceStop` | Force stop app |
 | `:DroidUninstall` | Uninstall app |
+
+### Android CLI (optional)
+
+These commands require the [`android` CLI](https://developer.android.com/tools/agents/android-cli) on PATH. Run `:checkhealth droid` to verify detection.
+
+| Command | Description |
+| --- | --- |
+| `:DroidScreenshot [path]` | Capture device screen; opens the PNG with the OS default viewer |
+| `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
+| `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
+
+When `android_cli.prefer_for.emulator = true`, the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`, `:DroidEmulatorCreate`) route through `android emulator …`. When `android_cli.prefer_for.deploy = true`, `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`. `:DroidInstall` always uses the legacy gradle path.
+
+> **Note:** `android emulator` is not supported on Windows; the `emulator` capability auto-falls-back to `avdmanager`/`emulator` there even when `prefer_for.emulator = true`.
 
 ### Logcat
 
