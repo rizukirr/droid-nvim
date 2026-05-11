@@ -250,7 +250,7 @@ function M.start(cfg)
             group = vim.api.nvim_create_augroup("DroidJavaInlayHints", { clear = true }),
             callback = function(ev)
                 local c = vim.lsp.get_client_by_id(ev.data.client_id)
-                if c and c.name == "jdtls" and c.supports_method "textDocument/inlayHint" then
+                if c and c.name == "jdtls" and c:supports_method "textDocument/inlayHint" then
                     vim.lsp.inlay_hint.enable(true, { bufnr = ev.buf })
                 end
             end,
