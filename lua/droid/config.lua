@@ -69,6 +69,15 @@ local defaults = {
         boot_check_interval_ms = 3000,
         logcat_startup_delay_ms = 2000,
     },
+    android_cli = {
+        enabled = "auto", -- "auto" | true | false ("auto" = use when `android` is on PATH)
+        prefer_for = {
+            emulator = true, -- emulator list/start/stop/create
+            deploy = false, -- `android run --apks=…` instead of gradle install + am start
+            screenshot = true, -- `android screen capture`
+            docs = true, -- `android docs search/fetch`
+        },
+    },
 }
 
 M.config = vim.deepcopy(defaults)
