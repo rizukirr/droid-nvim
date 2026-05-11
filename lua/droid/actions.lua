@@ -25,7 +25,74 @@ local function handle_post_install(tools, device_id, launch_app)
     end
 end
 
+-- :DroidRun fast path: gradle assemble<Variant> + `android run --apks=…`.
+-- `android run` installs and launches in one call, so we skip the
+-- gradle install task and the am-start step. Only used when the caller
+-- wants to launch (:DroidRun, not :DroidInstall) and the CLI backend is
+-- preferred for deploy and actually available.
+local function execute_build_run_via_cli(tools, device_id, on_complete)
+    local cli = require "droid.backends.android_cli"
+    local g = gradle.find_gradlew()
+    if not g then
+        if on_complete then
+            on_complete()
+        end
+        return
+    end
+
+    gradle.build(function(build_ok)
+        if not build_ok then
+            if on_complete then
+                on_complete()
+            end
+            return
+        end
+
+        local apks = gradle.find_apks_for_variant(g.cwd, gradle.selected_variant)
+        if #apks == 0 then
+            vim.notify(
+                ("No APKs found for variant %s under */build/outputs/apk/ -- falling back to gradle install"):format(
+                    gradle.selected_variant
+                ),
+                vim.log.levels.WARN
+            )
+            gradle.install(function(install_ok)
+                if on_complete then
+                    on_complete()
+                end
+                if install_ok then
+                    handle_post_install(tools, device_id, true)
+                end
+            end)
+            return
+        end
+
+        cli.run_apks(apks, { device = device_id }, function(ok)
+            if on_complete then
+                on_complete()
+            end
+            if not ok then
+                return
+            end
+            vim.notify("android-cli run completed", vim.log.levels.INFO)
+            local cfg = config.get()
+            local delay_ms = cfg.android.logcat_startup_delay_ms or 2000
+            vim.defer_fn(function()
+                logcat.refresh_logcat(tools.adb, device_id, nil, nil)
+            end, delay_ms)
+        end)
+    end)
+end
+
 local function execute_build_install(tools, device_id, launch_app, on_complete)
+    if launch_app then
+        local cli = require "droid.backends.android_cli"
+        if cli.prefers "deploy" then
+            execute_build_run_via_cli(tools, device_id, on_complete)
+            return
+        end
+    end
+
     gradle.build_and_install(function(success, exit_code, message, step)
         if on_complete then
             on_complete()
@@ -80,7 +147,12 @@ function M.build_and_run(on_complete)
             execute_build_install(tools, target.id, true, on_complete)
         elseif target.type == "avd" then
             progress.start_spinner "Starting emulator"
-            android.start_emulator(tools.emulator, target.avd)
+            local cli = require "droid.backends.android_cli"
+            if cli.prefers "emulator" then
+                cli.start_emulator(target.avd)
+            else
+                android.start_emulator(tools.emulator, target.avd)
+            end
             android.wait_for_device_ready(tools.adb, function(device_id)
                 progress.stop_spinner()
                 if not device_id then
@@ -117,7 +189,12 @@ function M.install_only(on_complete)
             execute_build_install(tools, target.id, false, on_complete)
         elseif target.type == "avd" then
             progress.start_spinner "Starting emulator"
-            android.start_emulator(tools.emulator, target.avd)
+            local cli = require "droid.backends.android_cli"
+            if cli.prefers "emulator" then
+                cli.start_emulator(target.avd)
+            else
+                android.start_emulator(tools.emulator, target.avd)
+            end
             android.wait_for_device_ready(tools.adb, function(device_id)
                 progress.stop_spinner()
                 if not device_id then

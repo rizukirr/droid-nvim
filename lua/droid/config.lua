@@ -69,6 +69,22 @@ local defaults = {
         boot_check_interval_ms = 3000,
         logcat_startup_delay_ms = 2000,
     },
+    android_cli = {
+        -- "auto" | true | false. "auto" detects `android` on PATH; the
+        -- backend still only fires when a prefer_for flag below opts a
+        -- capability into it.
+        enabled = "auto",
+        -- prefer_for governs capabilities that have BOTH a legacy path
+        -- (adb/avdmanager/gradle) and a CLI path. Defaults are off so
+        -- installing android-cli never changes existing behavior without
+        -- the user opting in. CLI-only commands (:DroidScreenshot,
+        -- :DroidDocs) are not listed here -- they always use the CLI when
+        -- available.
+        prefer_for = {
+            emulator = false, -- emulator list/start/stop/create
+            deploy = false, -- `android run --apks=…` instead of gradle install + am start
+        },
+    },
 }
 
 M.config = vim.deepcopy(defaults)

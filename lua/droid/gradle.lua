@@ -5,6 +5,35 @@ local M = {}
 
 M.selected_variant = "Debug"
 
+--- Locate APKs produced by `assemble<Variant>` under the standard AGP
+--- output layout. Handles both:
+---   - default builds: */build/outputs/apk/<variantLower>/*.apk
+---   - flavored builds: */build/outputs/apk/<flavor><Variant>/*.apk
+---     (e.g. freeDebug, paidRelease)
+--- An APK is considered a match when its parent directory name either
+--- equals variant:lower() or ends with the variant in its camelCase form.
+---@param cwd string project root
+---@param variant string e.g. "Debug" or "Release"
+---@return string[] absolute APK paths
+function M.find_apks_for_variant(cwd, variant)
+    local lower = variant:lower()
+    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "*", "*.apk")
+    local matches = {}
+    for _, apk in ipairs(vim.fn.glob(pattern, false, true)) do
+        local dir = vim.fs.basename(vim.fs.dirname(apk))
+        if dir == lower or (dir:sub(-#variant) == variant and #dir > #variant) then
+            table.insert(matches, apk)
+        end
+    end
+    return matches
+end
+
+--- Locate gradlew without notifying on failure -- for callers that want
+--- to handle "not found" themselves.
+function M.find_gradlew()
+    return find_gradlew()
+end
+
 local function find_gradlew()
     local gradlew = vim.fs.find("gradlew", { upward = true })[1]
     if gradlew and vim.fn.executable(gradlew) == 1 then
@@ -181,7 +210,7 @@ function M.build(on_complete)
             vim.notify(string.format("Build failed (exit code: %d)", exit_code), vim.log.levels.ERROR)
         end
         if on_complete then
-            on_complete()
+            on_complete(success)
         end
     end)
 end

@@ -640,7 +640,39 @@ local function run_avd_create(avdmanager, name, image_pkg, device_id)
     end
 end
 
+local function create_emulator_via_cli(cli)
+    cli.list_emulator_profiles(function(profiles)
+        if #profiles == 0 then
+            vim.notify("android-cli returned no emulator profiles", vim.log.levels.WARN)
+            return
+        end
+        vim.ui.select(profiles, {
+            prompt = "Select emulator profile:",
+            format_item = function(p)
+                return p
+            end,
+        }, function(choice)
+            if not choice then
+                return
+            end
+            vim.notify("Creating emulator from profile: " .. choice, vim.log.levels.INFO)
+            cli.create_emulator(choice, function(ok, stdout)
+                if ok then
+                    local detail = vim.trim(stdout)
+                    vim.notify("Emulator created" .. (#detail > 0 and ("\n" .. detail) or ""), vim.log.levels.INFO)
+                end
+            end)
+        end)
+    end)
+end
+
 function M.create_emulator()
+    local cli = require "droid.backends.android_cli"
+    if cli.prefers "emulator" then
+        create_emulator_via_cli(cli)
+        return
+    end
+
     local avdmanager = validate_avdmanager()
     if not avdmanager then
         return
@@ -657,15 +689,8 @@ end
 
 local CREATE_EMULATOR_SENTINEL = "+ Create New Emulator"
 
-function M.launch_emulator()
-    local emulator = M.get_emulator_path()
-    if not emulator then
-        return
-    end
-
-    local avds = M.get_available_avds(emulator)
+local function prompt_and_launch(avds, launch_fn)
     table.insert(avds, CREATE_EMULATOR_SENTINEL)
-
     vim.ui.select(avds, {
         prompt = "Select Emulator to launch:",
         format_item = function(avd)
@@ -675,16 +700,33 @@ function M.launch_emulator()
         if not choice then
             return
         end
-
         if choice == CREATE_EMULATOR_SENTINEL then
             M.create_emulator()
             return
         end
-
         vim.notify("Launching Emulator: " .. choice, vim.log.levels.INFO)
+        launch_fn(choice)
+    end)
+end
 
+function M.launch_emulator()
+    local cli = require "droid.backends.android_cli"
+    if cli.prefers "emulator" then
+        cli.list_avds(function(avds)
+            prompt_and_launch(avds, function(choice)
+                cli.start_emulator(choice)
+            end)
+        end)
+        return
+    end
+
+    local emulator = M.get_emulator_path()
+    if not emulator then
+        return
+    end
+
+    prompt_and_launch(M.get_available_avds(emulator), function(choice)
         local job_args = M.build_emulator_command(emulator, { "-avd", choice })
-
         vim.fn.jobstart(job_args, {
             on_exit = vim.schedule_wrap(function(_, exit_code)
                 if exit_code ~= 0 then
@@ -721,20 +763,31 @@ function M.stop_emulator()
                 return emu.id .. " (" .. emu.name .. ")"
             end,
         }, function(choice)
-            if choice then
-                vim.notify("Stopping emulator: " .. choice.id, vim.log.levels.INFO)
-                vim.fn.jobstart({ adb, "-s", choice.id, "emu", "kill" }, {
-                    on_exit = vim.schedule_wrap(function(_, exit_code)
-                        if exit_code == 0 then
-                            vim.notify("Emulator stopped successfully: " .. choice.id, vim.log.levels.INFO)
-                        else
-                            vim.notify("Failed to stop emulator: " .. choice.id, vim.log.levels.ERROR)
-                        end
-                    end),
-                })
-            else
+            if not choice then
                 vim.notify("Stop cancelled", vim.log.levels.INFO)
+                return
             end
+            vim.notify("Stopping emulator: " .. choice.id, vim.log.levels.INFO)
+
+            local cli = require "droid.backends.android_cli"
+            if cli.prefers "emulator" then
+                cli.stop_emulator(choice.id, function(ok)
+                    if ok then
+                        vim.notify("Emulator stopped successfully: " .. choice.id, vim.log.levels.INFO)
+                    end
+                end)
+                return
+            end
+
+            vim.fn.jobstart({ adb, "-s", choice.id, "emu", "kill" }, {
+                on_exit = vim.schedule_wrap(function(_, exit_code)
+                    if exit_code == 0 then
+                        vim.notify("Emulator stopped successfully: " .. choice.id, vim.log.levels.INFO)
+                    else
+                        vim.notify("Failed to stop emulator: " .. choice.id, vim.log.levels.ERROR)
+                    end
+                end),
+            })
         end)
     end)
 end
