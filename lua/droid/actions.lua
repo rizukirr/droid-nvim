@@ -57,11 +57,13 @@ local function execute_build_run_via_cli(tools, device_id, on_complete)
                 ),
                 vim.log.levels.WARN
             )
-            gradle.install(function()
+            gradle.install(function(install_ok)
                 if on_complete then
                     on_complete()
                 end
-                handle_post_install(tools, device_id, true)
+                if install_ok then
+                    handle_post_install(tools, device_id, true)
+                end
             end)
             return
         end
