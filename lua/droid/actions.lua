@@ -148,7 +148,12 @@ function M.build_and_run(on_complete)
             execute_build_install(tools, target.id, true, on_complete)
         elseif target.type == "avd" then
             progress.start_spinner "Starting emulator"
-            android.start_emulator(tools.emulator, target.avd)
+            local cli = require("droid.backends.android_cli")
+            if cli.prefers("emulator") then
+                cli.start_emulator(target.avd)
+            else
+                android.start_emulator(tools.emulator, target.avd)
+            end
             android.wait_for_device_ready(tools.adb, function(device_id)
                 progress.stop_spinner()
                 if not device_id then
@@ -185,7 +190,12 @@ function M.install_only(on_complete)
             execute_build_install(tools, target.id, false, on_complete)
         elseif target.type == "avd" then
             progress.start_spinner "Starting emulator"
-            android.start_emulator(tools.emulator, target.avd)
+            local cli = require("droid.backends.android_cli")
+            if cli.prefers("emulator") then
+                cli.start_emulator(target.avd)
+            else
+                android.start_emulator(tools.emulator, target.avd)
+            end
             android.wait_for_device_ready(tools.adb, function(device_id)
                 progress.stop_spinner()
                 if not device_id then

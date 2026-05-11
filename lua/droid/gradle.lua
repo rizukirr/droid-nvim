@@ -200,7 +200,7 @@ function M.build(on_complete)
             vim.notify(string.format("Build failed (exit code: %d)", exit_code), vim.log.levels.ERROR)
         end
         if on_complete then
-            on_complete()
+            on_complete(success)
         end
     end)
 end
