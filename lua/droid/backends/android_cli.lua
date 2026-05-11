@@ -146,6 +146,57 @@ function M.start_emulator(name)
     end)
 end
 
+--- List emulator profiles via `android emulator create --list-profiles`.
+--- Each profile is a device template the CLI knows how to instantiate
+--- (e.g. "medium_phone", "small_phone", "pixel_tablet").
+---@param callback fun(profiles: string[])
+function M.list_emulator_profiles(callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback({})
+        return
+    end
+    vim.system({ exe, "emulator", "create", "--list-profiles" }, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("emulator create --list-profiles", result)
+                callback({})
+                return
+            end
+            local profiles = {}
+            for line in (result.stdout or ""):gmatch("[^\r\n]+") do
+                local trimmed = vim.trim(line)
+                if #trimmed > 0 then
+                    table.insert(profiles, trimmed)
+                end
+            end
+            callback(profiles)
+        end)
+    end)
+end
+
+--- Create an emulator from a profile via `android emulator create --profile=<p>`.
+--- The CLI picks the AVD name and SDK image; no extra prompting is required.
+---@param profile string profile name from `list_emulator_profiles`
+---@param callback fun(ok: boolean, stdout: string)
+function M.create_emulator(profile, callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback(false, "")
+        return
+    end
+    vim.system({ exe, "emulator", "create", "--profile=" .. profile }, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure(("emulator create --profile=%s"):format(profile), result)
+                callback(false, result.stdout or "")
+                return
+            end
+            callback(true, result.stdout or "")
+        end)
+    end)
+end
+
 --- Stop a running emulator via `android emulator stop <serial>`.
 ---@param serial string e.g. "emulator-5554"
 ---@param callback fun(ok: boolean)

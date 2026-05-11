@@ -640,7 +640,42 @@ local function run_avd_create(avdmanager, name, image_pkg, device_id)
     end
 end
 
+local function create_emulator_via_cli(cli)
+    cli.list_emulator_profiles(function(profiles)
+        if #profiles == 0 then
+            vim.notify("android-cli returned no emulator profiles", vim.log.levels.WARN)
+            return
+        end
+        vim.ui.select(profiles, {
+            prompt = "Select emulator profile:",
+            format_item = function(p)
+                return p
+            end,
+        }, function(choice)
+            if not choice then
+                return
+            end
+            vim.notify("Creating emulator from profile: " .. choice, vim.log.levels.INFO)
+            cli.create_emulator(choice, function(ok, stdout)
+                if ok then
+                    local detail = vim.trim(stdout)
+                    vim.notify(
+                        "Emulator created" .. (#detail > 0 and ("\n" .. detail) or ""),
+                        vim.log.levels.INFO
+                    )
+                end
+            end)
+        end)
+    end)
+end
+
 function M.create_emulator()
+    local cli = require("droid.backends.android_cli")
+    if cli.prefers("emulator") then
+        create_emulator_via_cli(cli)
+        return
+    end
+
     local avdmanager = validate_avdmanager()
     if not avdmanager then
         return
