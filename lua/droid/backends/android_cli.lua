@@ -218,6 +218,58 @@ function M.stop_emulator(serial, callback)
     end)
 end
 
+--- Search the Android Knowledge Base via `android docs search "<query>"`.
+--- Output is assumed to be one `kb://` URL per non-empty line; lines that
+--- don't start with `kb://` are passed through verbatim so a richer
+--- "title\turl" format from future CLI versions still renders something.
+---@param query string
+---@param callback fun(results: string[])
+function M.docs_search(query, callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback({})
+        return
+    end
+    vim.system({ exe, "docs", "search", query }, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("docs search", result)
+                callback({})
+                return
+            end
+            local results = {}
+            for line in (result.stdout or ""):gmatch("[^\r\n]+") do
+                local trimmed = vim.trim(line)
+                if #trimmed > 0 then
+                    table.insert(results, trimmed)
+                end
+            end
+            callback(results)
+        end)
+    end)
+end
+
+--- Fetch a single KB document via `android docs fetch <kb-url>`.
+---@param url string e.g. "kb://android/topic/performance/overview"
+---@param callback fun(ok: boolean, body: string)
+function M.docs_fetch(url, callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback(false, "")
+        return
+    end
+    vim.system({ exe, "docs", "fetch", url }, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("docs fetch", result)
+                callback(false, result.stdout or "")
+                return
+            end
+            callback(true, result.stdout or "")
+        end)
+    end)
+end
+
 --- Capture a screenshot of the connected device via `android screen capture`.
 ---@param opts { output: string, annotate: boolean }
 ---@param callback fun(ok: boolean, output_path: string)

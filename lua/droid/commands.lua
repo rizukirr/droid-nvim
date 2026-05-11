@@ -199,6 +199,57 @@ function M.setup_commands()
             end
         end)
     end, { nargs = "?", complete = "file", bang = true })
+
+    -- :DroidDocs <query>   search Android Knowledge Base, fetch picked result
+    vim.api.nvim_create_user_command("DroidDocs", function(opts)
+        local cli = require("droid.backends.android_cli")
+        if not cli.is_available() then
+            vim.notify(
+                "DroidDocs requires android-cli (`android` not on PATH). See :checkhealth droid.",
+                vim.log.levels.ERROR
+            )
+            return
+        end
+
+        local query = vim.trim(opts.args or "")
+        if query == "" then
+            vim.notify("Usage: :DroidDocs <query>", vim.log.levels.WARN)
+            return
+        end
+
+        cli.docs_search(query, function(results)
+            if #results == 0 then
+                vim.notify("No KB results for: " .. query, vim.log.levels.INFO)
+                return
+            end
+
+            vim.ui.select(results, {
+                prompt = "Android KB results:",
+                format_item = function(r)
+                    return r
+                end,
+            }, function(choice)
+                if not choice then
+                    return
+                end
+                local url = choice:match("kb://%S+") or choice
+                cli.docs_fetch(url, function(ok, body)
+                    if not ok then
+                        return
+                    end
+                    vim.cmd("new")
+                    local buf = vim.api.nvim_get_current_buf()
+                    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(body, "\n", { plain = true }))
+                    vim.bo[buf].buftype = "nofile"
+                    vim.bo[buf].bufhidden = "wipe"
+                    vim.bo[buf].swapfile = false
+                    vim.bo[buf].filetype = "markdown"
+                    vim.bo[buf].modifiable = false
+                    vim.api.nvim_buf_set_name(buf, "droid-docs://" .. url)
+                end)
+            end)
+        end)
+    end, { nargs = "+" })
 end
 
 return M
