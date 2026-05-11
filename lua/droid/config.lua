@@ -70,12 +70,20 @@ local defaults = {
         logcat_startup_delay_ms = 2000,
     },
     android_cli = {
-        enabled = "auto", -- "auto" | true | false ("auto" = use when `android` is on PATH)
+        -- "auto" | true | false. "auto" detects `android` on PATH; the
+        -- backend still only fires when a prefer_for flag below opts a
+        -- capability into it.
+        enabled = "auto",
+        -- All silent-reroute capabilities default to false so installing
+        -- android-cli never changes existing behavior without the user
+        -- opting in. :DroidScreenshot and :DroidDocs are explicit CLI-only
+        -- commands and bypass this table; the flags here are informational
+        -- for them and consulted by :checkhealth droid.
         prefer_for = {
-            emulator = true, -- emulator list/start/stop/create
+            emulator = false, -- emulator list/start/stop/create
             deploy = false, -- `android run --apks=…` instead of gradle install + am start
-            screenshot = true, -- `android screen capture`
-            docs = true, -- `android docs search/fetch`
+            screenshot = true, -- informational; :DroidScreenshot always uses CLI
+            docs = true, -- informational; :DroidDocs always uses CLI
         },
     },
 }
