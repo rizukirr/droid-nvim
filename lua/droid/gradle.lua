@@ -5,17 +5,27 @@ local M = {}
 
 M.selected_variant = "Debug"
 
---- Glob APKs produced by `assemble<Variant>` under the standard AGP layout.
---- Matches `*/build/outputs/apk/<variantLower>/*.apk` -- covers single-
---- module debug/release projects. Flavored builds (variant dir like
---- `freeDebug`) are not auto-detected; callers should fall back to the
---- gradle install path when this returns empty.
+--- Locate APKs produced by `assemble<Variant>` under the standard AGP
+--- output layout. Handles both:
+---   - default builds: */build/outputs/apk/<variantLower>/*.apk
+---   - flavored builds: */build/outputs/apk/<flavor><Variant>/*.apk
+---     (e.g. freeDebug, paidRelease)
+--- An APK is considered a match when its parent directory name either
+--- equals variant:lower() or ends with the variant in its camelCase form.
 ---@param cwd string project root
 ---@param variant string e.g. "Debug" or "Release"
 ---@return string[] absolute APK paths
 function M.find_apks_for_variant(cwd, variant)
-    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", variant:lower(), "*.apk")
-    return vim.fn.glob(pattern, false, true)
+    local lower = variant:lower()
+    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "*", "*.apk")
+    local matches = {}
+    for _, apk in ipairs(vim.fn.glob(pattern, false, true)) do
+        local dir = vim.fs.basename(vim.fs.dirname(apk))
+        if dir == lower or (dir:sub(-#variant) == variant and #dir > #variant) then
+            table.insert(matches, apk)
+        end
+    end
+    return matches
 end
 
 --- Locate gradlew without notifying on failure -- for callers that want

@@ -51,9 +51,8 @@ local function execute_build_run_via_cli(tools, device_id, on_complete)
         local apks = gradle.find_apks_for_variant(g.cwd, gradle.selected_variant)
         if #apks == 0 then
             vim.notify(
-                ("No APKs found for %s under */build/outputs/apk/%s/ -- falling back to gradle install"):format(
-                    gradle.selected_variant,
-                    gradle.selected_variant:lower()
+                ("No APKs found for variant %s under */build/outputs/apk/ -- falling back to gradle install"):format(
+                    gradle.selected_variant
                 ),
                 vim.log.levels.WARN
             )
