@@ -74,16 +74,15 @@ local defaults = {
         -- backend still only fires when a prefer_for flag below opts a
         -- capability into it.
         enabled = "auto",
-        -- All silent-reroute capabilities default to false so installing
-        -- android-cli never changes existing behavior without the user
-        -- opting in. :DroidScreenshot and :DroidDocs are explicit CLI-only
-        -- commands and bypass this table; the flags here are informational
-        -- for them and consulted by :checkhealth droid.
+        -- prefer_for governs capabilities that have BOTH a legacy path
+        -- (adb/avdmanager/gradle) and a CLI path. Defaults are off so
+        -- installing android-cli never changes existing behavior without
+        -- the user opting in. CLI-only commands (:DroidScreenshot,
+        -- :DroidDocs) are not listed here -- they always use the CLI when
+        -- available.
         prefer_for = {
             emulator = false, -- emulator list/start/stop/create
             deploy = false, -- `android run --apks=…` instead of gradle install + am start
-            screenshot = true, -- informational; :DroidScreenshot always uses CLI
-            docs = true, -- informational; :DroidDocs always uses CLI
         },
     },
 }

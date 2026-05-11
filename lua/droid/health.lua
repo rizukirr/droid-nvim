@@ -37,8 +37,7 @@ local function check_android_cli()
     vim.health.ok(("android-cli available: %s (%s)"):format(cli.version() or "version unknown", exe))
 
     local prefer_for = cfg.prefer_for or {}
-    local capabilities = { "emulator", "deploy", "screenshot", "docs" }
-    for _, cap in ipairs(capabilities) do
+    for _, cap in ipairs { "emulator", "deploy" } do
         local routed = cli.prefers(cap)
         local note = routed and "routed through android-cli" or "using fallback path"
         if cap == "emulator" and (vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1) then
@@ -46,6 +45,8 @@ local function check_android_cli()
         end
         vim.health.info(("%-10s -> %s (prefer_for.%s = %s)"):format(cap, note, cap, tostring(prefer_for[cap])))
     end
+
+    vim.health.info "CLI-only commands available: :DroidScreenshot, :DroidDocs"
 end
 
 local function check_sdk_tools()

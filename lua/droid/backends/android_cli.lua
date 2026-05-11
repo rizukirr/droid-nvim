@@ -77,7 +77,7 @@ end
 --- Returns false when the backend is unavailable, disabled, or the
 --- capability flag is off. Also auto-disables `emulator` on Windows where
 --- `android emulator` is not supported.
----@param capability "emulator"|"deploy"|"screenshot"|"docs"
+---@param capability "emulator"|"deploy"
 ---@return boolean
 function M.prefers(capability)
     if not M.is_available() then
@@ -100,8 +100,30 @@ local function notify_failure(action, result)
     vim.notify(msg, vim.log.levels.ERROR)
 end
 
+--- Parse a list-style CLI output (one identifier per line, optional
+--- trailing metadata) into a clean array of identifiers. Tolerates:
+---   - blank lines and indented entries
+---   - trailing tabs / spaces / metadata ("name\tstatus", "name (path)")
+---   - header lines that don't start with an identifier character
+--- Returns only tokens whose first character is a letter, digit, or
+--- underscore -- AVD names and profile names match that shape; ANSI
+--- escapes, prompts, and decorative headers don't.
+---@param stdout string
+---@return string[]
+local function parse_id_list(stdout)
+    local out = {}
+    for line in (stdout or ""):gmatch "[^\r\n]+" do
+        local token = vim.trim(line):match "^[%w_][%w_%-%.]*"
+        if token then
+            table.insert(out, token)
+        end
+    end
+    return out
+end
+
 --- List available AVD names via `android emulator list`.
---- Assumes one AVD name per output line; blank lines are ignored.
+--- Output is parsed with parse_id_list so "name\tstatus" / decorative
+--- header lines / extra trailing metadata don't break the picker.
 ---@param callback fun(avds: string[])
 function M.list_avds(callback)
     local exe = resolve_binary()
@@ -116,14 +138,7 @@ function M.list_avds(callback)
                 callback {}
                 return
             end
-            local avds = {}
-            for line in (result.stdout or ""):gmatch "[^\r\n]+" do
-                local trimmed = vim.trim(line)
-                if #trimmed > 0 then
-                    table.insert(avds, trimmed)
-                end
-            end
-            callback(avds)
+            callback(parse_id_list(result.stdout))
         end)
     end)
 end
@@ -163,14 +178,7 @@ function M.list_emulator_profiles(callback)
                 callback {}
                 return
             end
-            local profiles = {}
-            for line in (result.stdout or ""):gmatch "[^\r\n]+" do
-                local trimmed = vim.trim(line)
-                if #trimmed > 0 then
-                    table.insert(profiles, trimmed)
-                end
-            end
-            callback(profiles)
+            callback(parse_id_list(result.stdout))
         end)
     end)
 end
