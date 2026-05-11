@@ -129,23 +129,21 @@ function M.list_avds(callback)
 end
 
 --- Launch an emulator via `android emulator start <name>`.
---- The command is fire-and-forget; android-cli detaches the emulator process.
+--- Long-running: the callback only fires when the emulator process exits,
+--- which is typically when the user shuts it down.
 ---@param name string AVD name
 function M.start_emulator(name)
     local exe = resolve_binary()
     if not exe then
         return
     end
-    vim.fn.jobstart({ exe, "emulator", "start", name }, {
-        on_exit = vim.schedule_wrap(function(_, exit_code)
-            if exit_code ~= 0 then
-                vim.notify(
-                    ("android-cli emulator start failed for %s (exit %d)"):format(name, exit_code),
-                    vim.log.levels.ERROR
-                )
-            end
-        end),
-    })
+    vim.system({ exe, "emulator", "start", name }, { text = true }, function(result)
+        if result.code ~= 0 then
+            vim.schedule(function()
+                notify_failure(("emulator start %s"):format(name), result)
+            end)
+        end
+    end)
 end
 
 --- Stop a running emulator via `android emulator stop <serial>`.
