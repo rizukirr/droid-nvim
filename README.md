@@ -143,20 +143,12 @@ require("droid").setup({
         android_home = nil,                -- override ANDROID_HOME env var
         android_avd_home = nil,            -- override ANDROID_AVD_HOME env var
     },
-    android_cli = {
-        -- "auto" detects the `android` binary on PATH; set to false to
-        -- disable the backend even if installed.
-        enabled = "auto",
-        -- Opt-in flags for capabilities that have both a legacy and a
-        -- CLI path. Defaults are off so installing android-cli never
-        -- changes existing behavior until you flip a flag. The CLI-only
-        -- commands :DroidScreenshot and :DroidDocs always use the CLI
-        -- when available and are not listed here.
-        prefer_for = {
-            emulator = false,              -- :DroidEmulator / Stop / Create
-            deploy = false,                -- :DroidRun uses `android run` (install + launch)
-        },
-    },
+    -- android-cli backend. "auto" uses the `android` binary if on PATH,
+    -- true forces it (warns when missing), false disables it entirely.
+    -- When active, droid-nvim routes emulator management, :DroidRun
+    -- deploy, screenshots, and KB docs through android-cli. :DroidInstall
+    -- stays on gradle (android run cannot install without launching).
+    android_cli = "auto",
 })
 ```
 
@@ -275,9 +267,9 @@ These commands require the [`android` CLI](https://developer.android.com/tools/a
 | `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
 | `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
 
-When `android_cli.prefer_for.emulator = true`, the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`, `:DroidEmulatorCreate`) route through `android emulator …`. When `android_cli.prefer_for.deploy = true`, `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`. `:DroidInstall` always uses the legacy gradle path.
+When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`, `:DroidEmulatorCreate`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`. `:DroidInstall` always uses the legacy gradle path because `android run` cannot install without launching.
 
-> **Note:** `android emulator` is not supported on Windows; the `emulator` capability auto-falls-back to `avdmanager`/`emulator` there even when `prefer_for.emulator = true`.
+> **Note:** `android emulator` is not supported on Windows; the emulator commands fall back to `avdmanager`/`emulator` there even when `android_cli` is active.
 
 ### Logcat
 

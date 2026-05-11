@@ -1,9 +1,10 @@
 --- android-cli backend wrapper.
 --- Detects the `android` binary on PATH and exposes typed helpers for the
---- subset of commands droid-nvim cares about. All callers must gate on
---- `M.is_available()` and respect `config.android_cli.prefer_for.<capability>`
---- before routing through here -- existing adb/avdmanager paths remain the
---- fallback whenever this backend is disabled, unavailable, or not preferred.
+--- subset of commands droid-nvim cares about. Callers gate on
+--- `M.prefers(capability)`, which combines availability with the
+--- top-level config.android_cli setting ("auto" | true | false) and the
+--- per-capability quirks (e.g. `emulator` is unsupported on Windows so
+--- the fallback path always wins there).
 
 local M = {}
 
@@ -24,16 +25,35 @@ function M.reset_cache()
     _cached_version = nil
 end
 
---- Resolve the `android` executable path, honoring the user `enabled` setting.
----@return string|nil path nil when disabled or not found
+--- Read the top-level android_cli toggle. Legacy table form
+--- `{ enabled = ... }` is accepted for backward compatibility.
+---@return "auto"|boolean
+local function read_toggle()
+    local raw = config.get().android_cli
+    if type(raw) == "table" then
+        return raw.enabled
+    end
+    return raw
+end
+
+--- Resolve the `android` executable path, honoring the user toggle.
+--- Returns nil when the toggle is false or when the binary is absent.
+--- When the toggle is `true` and the binary is missing we warn once.
+---@return string|nil
 local function resolve_binary()
-    local cfg = config.get().android_cli or {}
-    if cfg.enabled == false then
+    local toggle = read_toggle()
+    if toggle == false then
         return nil
     end
 
     local exe = vim.fn.exepath "android"
     if exe == nil or exe == "" then
+        if toggle == true then
+            vim.notify(
+                'config.android_cli = true but `android` binary not found on PATH; install from https://developer.android.com/tools/agents or set android_cli = "auto".',
+                vim.log.levels.WARN
+            )
+        end
         return nil
     end
     return exe
@@ -74,9 +94,8 @@ function M.version()
 end
 
 --- Check whether a specific capability should be routed through android-cli.
---- Returns false when the backend is unavailable, disabled, or the
---- capability flag is off. Also auto-disables `emulator` on Windows where
---- `android emulator` is not supported.
+--- True when the backend is available and the capability has no
+--- platform-specific blocker (currently: `emulator` on Windows).
 ---@param capability "emulator"|"deploy"
 ---@return boolean
 function M.prefers(capability)
@@ -86,9 +105,7 @@ function M.prefers(capability)
     if capability == "emulator" and is_windows() then
         return false
     end
-    local cfg = config.get().android_cli or {}
-    local prefer_for = cfg.prefer_for or {}
-    return prefer_for[capability] == true
+    return true
 end
 
 local function notify_failure(action, result)
