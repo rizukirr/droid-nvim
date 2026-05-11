@@ -218,4 +218,29 @@ function M.stop_emulator(serial, callback)
     end)
 end
 
+--- Capture a screenshot of the connected device via `android screen capture`.
+---@param opts { output: string, annotate: boolean }
+---@param callback fun(ok: boolean, output_path: string)
+function M.screen_capture(opts, callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback(false, opts.output)
+        return
+    end
+    local args = { exe, "screen", "capture", "--output=" .. opts.output }
+    if opts.annotate then
+        table.insert(args, "--annotate")
+    end
+    vim.system(args, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("screen capture", result)
+                callback(false, opts.output)
+                return
+            end
+            callback(true, opts.output)
+        end)
+    end)
+end
+
 return M

@@ -161,6 +161,44 @@ function M.setup_commands()
     vim.api.nvim_create_user_command("DroidMirror", function()
         android.mirror()
     end, {})
+
+    -- :DroidScreenshot [path]   capture device screen (android-cli)
+    -- :DroidScreenshot! [path]  capture with --annotate (labels UI elements)
+    vim.api.nvim_create_user_command("DroidScreenshot", function(opts)
+        local cli = require("droid.backends.android_cli")
+        if not cli.is_available() then
+            vim.notify(
+                "DroidScreenshot requires android-cli (`android` not on PATH). See :checkhealth droid.",
+                vim.log.levels.ERROR
+            )
+            return
+        end
+
+        local output = opts.fargs[1]
+        if not output or output == "" then
+            local stamp = os.date("%Y%m%d-%H%M%S")
+            output = vim.fs.joinpath(vim.fn.stdpath("cache"), ("droid-screenshot-%s.png"):format(stamp))
+        end
+
+        cli.screen_capture({ output = output, annotate = opts.bang }, function(ok, path)
+            if not ok then
+                return
+            end
+            vim.notify("Screenshot saved: " .. path, vim.log.levels.INFO)
+
+            local opener
+            if vim.fn.has("mac") == 1 then
+                opener = "open"
+            elseif vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+                opener = "explorer"
+            elseif vim.fn.executable("xdg-open") == 1 then
+                opener = "xdg-open"
+            end
+            if opener then
+                vim.system({ opener, path }, { detach = true })
+            end
+        end)
+    end, { nargs = "?", complete = "file", bang = true })
 end
 
 return M
