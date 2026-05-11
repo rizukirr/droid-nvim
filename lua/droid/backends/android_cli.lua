@@ -91,4 +91,82 @@ function M.prefers(capability)
     return prefer_for[capability] == true
 end
 
+local function notify_failure(action, result)
+    local stderr = vim.trim(result.stderr or "")
+    local msg = ("android-cli %s failed (exit %d)"):format(action, result.code or -1)
+    if #stderr > 0 then
+        msg = msg .. ": " .. stderr
+    end
+    vim.notify(msg, vim.log.levels.ERROR)
+end
+
+--- List available AVD names via `android emulator list`.
+--- Assumes one AVD name per output line; blank lines are ignored.
+---@param callback fun(avds: string[])
+function M.list_avds(callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback({})
+        return
+    end
+    vim.system({ exe, "emulator", "list" }, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("emulator list", result)
+                callback({})
+                return
+            end
+            local avds = {}
+            for line in (result.stdout or ""):gmatch("[^\r\n]+") do
+                local trimmed = vim.trim(line)
+                if #trimmed > 0 then
+                    table.insert(avds, trimmed)
+                end
+            end
+            callback(avds)
+        end)
+    end)
+end
+
+--- Launch an emulator via `android emulator start <name>`.
+--- The command is fire-and-forget; android-cli detaches the emulator process.
+---@param name string AVD name
+function M.start_emulator(name)
+    local exe = resolve_binary()
+    if not exe then
+        return
+    end
+    vim.fn.jobstart({ exe, "emulator", "start", name }, {
+        on_exit = vim.schedule_wrap(function(_, exit_code)
+            if exit_code ~= 0 then
+                vim.notify(
+                    ("android-cli emulator start failed for %s (exit %d)"):format(name, exit_code),
+                    vim.log.levels.ERROR
+                )
+            end
+        end),
+    })
+end
+
+--- Stop a running emulator via `android emulator stop <serial>`.
+---@param serial string e.g. "emulator-5554"
+---@param callback fun(ok: boolean)
+function M.stop_emulator(serial, callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback(false)
+        return
+    end
+    vim.system({ exe, "emulator", "stop", serial }, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("emulator stop", result)
+                callback(false)
+                return
+            end
+            callback(true)
+        end)
+    end)
+end
+
 return M
