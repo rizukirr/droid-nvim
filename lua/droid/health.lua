@@ -11,8 +11,9 @@ local function check_android_cli()
     local cli = require "droid.backends.android_cli"
     cli.reset_cache() -- always re-probe inside checkhealth
 
-    local cfg = (require("droid.config").get() or {}).android_cli or {}
-    vim.health.info("config.enabled = " .. vim.inspect(cfg.enabled))
+    local raw = (require "droid.config").get().android_cli
+    local toggle = type(raw) == "table" and raw.enabled or raw
+    vim.health.info("config.android_cli = " .. vim.inspect(toggle))
 
     local exe = vim.fn.exepath "android"
     if exe == "" then
@@ -24,8 +25,8 @@ local function check_android_cli()
         return
     end
 
-    if cfg.enabled == false then
-        vim.health.warn("android-cli detected at " .. exe .. " but disabled via config.android_cli.enabled = false")
+    if toggle == false then
+        vim.health.warn("android-cli detected at " .. exe .. " but disabled via config.android_cli = false")
         return
     end
 
@@ -36,14 +37,13 @@ local function check_android_cli()
 
     vim.health.ok(("android-cli available: %s (%s)"):format(cli.version() or "version unknown", exe))
 
-    local prefer_for = cfg.prefer_for or {}
     for _, cap in ipairs { "emulator", "deploy" } do
         local routed = cli.prefers(cap)
         local note = routed and "routed through android-cli" or "using fallback path"
         if cap == "emulator" and (vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1) then
             note = "fallback only (android emulator is not supported on Windows)"
         end
-        vim.health.info(("%-10s -> %s (prefer_for.%s = %s)"):format(cap, note, cap, tostring(prefer_for[cap])))
+        vim.health.info(("%-10s -> %s"):format(cap, note))
     end
 
     vim.health.info "CLI-only commands available: :DroidScreenshot, :DroidDocs"
