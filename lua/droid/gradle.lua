@@ -5,6 +5,52 @@ local M = {}
 
 M.selected_variant = "Debug"
 
+--- Glob APKs produced by `assemble<Variant>` under the standard AGP layout.
+--- Matches `*/build/outputs/apk/<variantLower>/*.apk` -- covers single-
+--- module debug/release projects. Flavored builds (variant dir like
+--- `freeDebug`) are not auto-detected; users with flavors should keep
+--- config.android_cli.prefer_for.deploy = false.
+---@param cwd string project root
+---@param variant string e.g. "Debug" or "Release"
+---@return string[] absolute APK paths
+local function find_apks_for_variant(cwd, variant)
+    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", variant:lower(), "*.apk")
+    return vim.fn.glob(pattern, false, true)
+end
+
+--- Deploy via android-cli when preferred; returns true if the CLI path
+--- handled the deploy (the caller should not invoke gradle install task).
+---@param g { cwd: string }
+---@param callback fun(success: boolean, exit_code: number, message: string)
+---@return boolean handled
+local function try_cli_deploy(g, callback)
+    local cli = require("droid.backends.android_cli")
+    if not cli.prefers("deploy") then
+        return false
+    end
+
+    local apks = find_apks_for_variant(g.cwd, M.selected_variant)
+    if #apks == 0 then
+        local msg = ("No APKs found for variant %s under */build/outputs/apk/%s/"):format(
+            M.selected_variant,
+            M.selected_variant:lower()
+        )
+        vim.notify(msg, vim.log.levels.ERROR)
+        vim.schedule(function()
+            callback(false, -1, msg)
+        end)
+        return true
+    end
+
+    progress.update_spinner_message("Deploying via android-cli")
+    cli.run_apks(apks, {}, function(ok, detail)
+        local message = ok and "Installed via android-cli" or ("android-cli run failed: " .. detail)
+        vim.notify(message, ok and vim.log.levels.INFO or vim.log.levels.ERROR)
+        callback(ok, ok and 0 or 1, message)
+    end)
+    return true
+end
+
 local function find_gradlew()
     local gradlew = vim.fs.find("gradlew", { upward = true })[1]
     if gradlew and vim.fn.executable(gradlew) == 1 then
@@ -221,8 +267,18 @@ function M.install(callback)
         return
     end
 
-    local task = "install" .. M.selected_variant
     progress.start_spinner("Installing " .. M.selected_variant .. " APK")
+
+    if try_cli_deploy(g, function(ok, code, message)
+        progress.stop_spinner()
+        if callback then
+            callback(ok, code, message)
+        end
+    end) then
+        return
+    end
+
+    local task = "install" .. M.selected_variant
 
     local buf = buffer.get_or_create("gradle", nil)
 
@@ -297,6 +353,15 @@ function M.build_and_install(callback)
         end
 
         progress.update_spinner_message("Installing " .. M.selected_variant .. " APK")
+
+        if try_cli_deploy(g, function(ok, code, message)
+            progress.stop_spinner()
+            if callback then
+                callback(ok, code, message, "install")
+            end
+        end) then
+            return
+        end
 
         local buf = buffer.get_or_create("gradle", nil)
 

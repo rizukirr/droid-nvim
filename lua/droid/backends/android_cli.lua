@@ -218,6 +218,50 @@ function M.stop_emulator(serial, callback)
     end)
 end
 
+--- Deploy one or more APKs via `android run --apks=…`.
+--- Replaces the `adb install` + `am start` sequence with a single CLI call
+--- that handles multi-APK splits and activity launch in one shot.
+---@param apks string[] absolute APK paths
+---@param opts { device?: string, activity?: string, debug?: boolean, type?: string }
+---@param callback fun(ok: boolean, message: string)
+function M.run_apks(apks, opts, callback)
+    local exe = resolve_binary()
+    if not exe then
+        callback(false, "android-cli not available")
+        return
+    end
+    if #apks == 0 then
+        callback(false, "no APKs supplied")
+        return
+    end
+    opts = opts or {}
+
+    local args = { exe, "run", "--apks=" .. table.concat(apks, ",") }
+    if opts.device then
+        table.insert(args, "--device=" .. opts.device)
+    end
+    if opts.activity then
+        table.insert(args, "--activity=" .. opts.activity)
+    end
+    if opts.debug then
+        table.insert(args, "--debug")
+    end
+    if opts.type then
+        table.insert(args, "--type=" .. opts.type)
+    end
+
+    vim.system(args, { text = true }, function(result)
+        vim.schedule(function()
+            if result.code ~= 0 then
+                notify_failure("run", result)
+                callback(false, vim.trim(result.stderr or ""))
+                return
+            end
+            callback(true, vim.trim(result.stdout or ""))
+        end)
+    end)
+end
+
 --- Search the Android Knowledge Base via `android docs search "<query>"`.
 --- Output is assumed to be one `kb://` URL per non-empty line; lines that
 --- don't start with `kb://` are passed through verbatim so a richer
