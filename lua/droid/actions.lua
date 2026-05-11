@@ -31,7 +31,7 @@ end
 -- wants to launch (:DroidRun, not :DroidInstall) and the CLI backend is
 -- preferred for deploy and actually available.
 local function execute_build_run_via_cli(tools, device_id, on_complete)
-    local cli = require("droid.backends.android_cli")
+    local cli = require "droid.backends.android_cli"
     local g = gradle.find_gradlew()
     if not g then
         if on_complete then
@@ -86,8 +86,8 @@ end
 
 local function execute_build_install(tools, device_id, launch_app, on_complete)
     if launch_app then
-        local cli = require("droid.backends.android_cli")
-        if cli.prefers("deploy") then
+        local cli = require "droid.backends.android_cli"
+        if cli.prefers "deploy" then
             execute_build_run_via_cli(tools, device_id, on_complete)
             return
         end
@@ -147,8 +147,8 @@ function M.build_and_run(on_complete)
             execute_build_install(tools, target.id, true, on_complete)
         elseif target.type == "avd" then
             progress.start_spinner "Starting emulator"
-            local cli = require("droid.backends.android_cli")
-            if cli.prefers("emulator") then
+            local cli = require "droid.backends.android_cli"
+            if cli.prefers "emulator" then
                 cli.start_emulator(target.avd)
             else
                 android.start_emulator(tools.emulator, target.avd)
@@ -189,8 +189,8 @@ function M.install_only(on_complete)
             execute_build_install(tools, target.id, false, on_complete)
         elseif target.type == "avd" then
             progress.start_spinner "Starting emulator"
-            local cli = require("droid.backends.android_cli")
-            if cli.prefers("emulator") then
+            local cli = require "droid.backends.android_cli"
+            if cli.prefers "emulator" then
                 cli.start_emulator(target.avd)
             else
                 android.start_emulator(tools.emulator, target.avd)

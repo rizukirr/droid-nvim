@@ -659,10 +659,7 @@ local function create_emulator_via_cli(cli)
             cli.create_emulator(choice, function(ok, stdout)
                 if ok then
                     local detail = vim.trim(stdout)
-                    vim.notify(
-                        "Emulator created" .. (#detail > 0 and ("\n" .. detail) or ""),
-                        vim.log.levels.INFO
-                    )
+                    vim.notify("Emulator created" .. (#detail > 0 and ("\n" .. detail) or ""), vim.log.levels.INFO)
                 end
             end)
         end)
@@ -670,8 +667,8 @@ local function create_emulator_via_cli(cli)
 end
 
 function M.create_emulator()
-    local cli = require("droid.backends.android_cli")
-    if cli.prefers("emulator") then
+    local cli = require "droid.backends.android_cli"
+    if cli.prefers "emulator" then
         create_emulator_via_cli(cli)
         return
     end
@@ -713,8 +710,8 @@ local function prompt_and_launch(avds, launch_fn)
 end
 
 function M.launch_emulator()
-    local cli = require("droid.backends.android_cli")
-    if cli.prefers("emulator") then
+    local cli = require "droid.backends.android_cli"
+    if cli.prefers "emulator" then
         cli.list_avds(function(avds)
             prompt_and_launch(avds, function(choice)
                 cli.start_emulator(choice)
@@ -772,8 +769,8 @@ function M.stop_emulator()
             end
             vim.notify("Stopping emulator: " .. choice.id, vim.log.levels.INFO)
 
-            local cli = require("droid.backends.android_cli")
-            if cli.prefers("emulator") then
+            local cli = require "droid.backends.android_cli"
+            if cli.prefers "emulator" then
                 cli.stop_emulator(choice.id, function(ok)
                     if ok then
                         vim.notify("Emulator stopped successfully: " .. choice.id, vim.log.levels.INFO)

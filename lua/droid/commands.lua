@@ -165,7 +165,7 @@ function M.setup_commands()
     -- :DroidScreenshot [path]   capture device screen (android-cli)
     -- :DroidScreenshot! [path]  capture with --annotate (labels UI elements)
     vim.api.nvim_create_user_command("DroidScreenshot", function(opts)
-        local cli = require("droid.backends.android_cli")
+        local cli = require "droid.backends.android_cli"
         if not cli.is_available() then
             vim.notify(
                 "DroidScreenshot requires android-cli (`android` not on PATH). See :checkhealth droid.",
@@ -176,8 +176,8 @@ function M.setup_commands()
 
         local output = opts.fargs[1]
         if not output or output == "" then
-            local stamp = os.date("%Y%m%d-%H%M%S")
-            output = vim.fs.joinpath(vim.fn.stdpath("cache"), ("droid-screenshot-%s.png"):format(stamp))
+            local stamp = os.date "%Y%m%d-%H%M%S"
+            output = vim.fs.joinpath(vim.fn.stdpath "cache", ("droid-screenshot-%s.png"):format(stamp))
         end
 
         cli.screen_capture({ output = output, annotate = opts.bang }, function(ok, path)
@@ -187,11 +187,11 @@ function M.setup_commands()
             vim.notify("Screenshot saved: " .. path, vim.log.levels.INFO)
 
             local opener
-            if vim.fn.has("mac") == 1 then
+            if vim.fn.has "mac" == 1 then
                 opener = "open"
-            elseif vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+            elseif vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1 then
                 opener = "explorer"
-            elseif vim.fn.executable("xdg-open") == 1 then
+            elseif vim.fn.executable "xdg-open" == 1 then
                 opener = "xdg-open"
             end
             if opener then
@@ -202,7 +202,7 @@ function M.setup_commands()
 
     -- :DroidDocs <query>   search Android Knowledge Base, fetch picked result
     vim.api.nvim_create_user_command("DroidDocs", function(opts)
-        local cli = require("droid.backends.android_cli")
+        local cli = require "droid.backends.android_cli"
         if not cli.is_available() then
             vim.notify(
                 "DroidDocs requires android-cli (`android` not on PATH). See :checkhealth droid.",
@@ -232,12 +232,12 @@ function M.setup_commands()
                 if not choice then
                     return
                 end
-                local url = choice:match("kb://%S+") or choice
+                local url = choice:match "kb://%S+" or choice
                 cli.docs_fetch(url, function(ok, body)
                     if not ok then
                         return
                     end
-                    vim.cmd("new")
+                    vim.cmd "new"
                     local buf = vim.api.nvim_get_current_buf()
                     vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(body, "\n", { plain = true }))
                     vim.bo[buf].buftype = "nofile"

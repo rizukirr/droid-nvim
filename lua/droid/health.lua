@@ -6,15 +6,15 @@
 local M = {}
 
 local function check_android_cli()
-    vim.health.start("droid.nvim: android-cli backend")
+    vim.health.start "droid.nvim: android-cli backend"
 
-    local cli = require("droid.backends.android_cli")
+    local cli = require "droid.backends.android_cli"
     cli.reset_cache() -- always re-probe inside checkhealth
 
     local cfg = (require("droid.config").get() or {}).android_cli or {}
     vim.health.info("config.enabled = " .. vim.inspect(cfg.enabled))
 
-    local exe = vim.fn.exepath("android")
+    local exe = vim.fn.exepath "android"
     if exe == "" then
         vim.health.warn(
             "`android` binary not found on PATH",
@@ -25,9 +25,7 @@ local function check_android_cli()
     end
 
     if cfg.enabled == false then
-        vim.health.warn(
-            "android-cli detected at " .. exe .. " but disabled via config.android_cli.enabled = false"
-        )
+        vim.health.warn("android-cli detected at " .. exe .. " but disabled via config.android_cli.enabled = false")
         return
     end
 
@@ -43,7 +41,7 @@ local function check_android_cli()
     for _, cap in ipairs(capabilities) do
         local routed = cli.prefers(cap)
         local note = routed and "routed through android-cli" or "using fallback path"
-        if cap == "emulator" and (vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1) then
+        if cap == "emulator" and (vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1) then
             note = "fallback only (android emulator is not supported on Windows)"
         end
         vim.health.info(("%-10s -> %s (prefer_for.%s = %s)"):format(cap, note, cap, tostring(prefer_for[cap])))
@@ -51,9 +49,9 @@ local function check_android_cli()
 end
 
 local function check_sdk_tools()
-    vim.health.start("droid.nvim: Android SDK tools (fallback path)")
+    vim.health.start "droid.nvim: Android SDK tools (fallback path)"
 
-    local android = require("droid.android")
+    local android = require "droid.android"
     local sdk = android.detect_android_sdk()
     if not sdk then
         vim.health.error(

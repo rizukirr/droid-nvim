@@ -7,7 +7,7 @@
 
 local M = {}
 
-local config = require("droid.config")
+local config = require "droid.config"
 
 ---@type boolean|nil
 local _cached_available = nil
@@ -15,7 +15,7 @@ local _cached_available = nil
 local _cached_version = nil
 
 local function is_windows()
-    return vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
+    return vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1
 end
 
 --- Reset detection cache. Useful for tests and `:checkhealth` reruns.
@@ -32,7 +32,7 @@ local function resolve_binary()
         return nil
     end
 
-    local exe = vim.fn.exepath("android")
+    local exe = vim.fn.exepath "android"
     if exe == nil or exe == "" then
         return nil
     end
@@ -106,18 +106,18 @@ end
 function M.list_avds(callback)
     local exe = resolve_binary()
     if not exe then
-        callback({})
+        callback {}
         return
     end
     vim.system({ exe, "emulator", "list" }, { text = true }, function(result)
         vim.schedule(function()
             if result.code ~= 0 then
                 notify_failure("emulator list", result)
-                callback({})
+                callback {}
                 return
             end
             local avds = {}
-            for line in (result.stdout or ""):gmatch("[^\r\n]+") do
+            for line in (result.stdout or ""):gmatch "[^\r\n]+" do
                 local trimmed = vim.trim(line)
                 if #trimmed > 0 then
                     table.insert(avds, trimmed)
@@ -153,18 +153,18 @@ end
 function M.list_emulator_profiles(callback)
     local exe = resolve_binary()
     if not exe then
-        callback({})
+        callback {}
         return
     end
     vim.system({ exe, "emulator", "create", "--list-profiles" }, { text = true }, function(result)
         vim.schedule(function()
             if result.code ~= 0 then
                 notify_failure("emulator create --list-profiles", result)
-                callback({})
+                callback {}
                 return
             end
             local profiles = {}
-            for line in (result.stdout or ""):gmatch("[^\r\n]+") do
+            for line in (result.stdout or ""):gmatch "[^\r\n]+" do
                 local trimmed = vim.trim(line)
                 if #trimmed > 0 then
                     table.insert(profiles, trimmed)
@@ -271,18 +271,18 @@ end
 function M.docs_search(query, callback)
     local exe = resolve_binary()
     if not exe then
-        callback({})
+        callback {}
         return
     end
     vim.system({ exe, "docs", "search", query }, { text = true }, function(result)
         vim.schedule(function()
             if result.code ~= 0 then
                 notify_failure("docs search", result)
-                callback({})
+                callback {}
                 return
             end
             local results = {}
-            for line in (result.stdout or ""):gmatch("[^\r\n]+") do
+            for line in (result.stdout or ""):gmatch "[^\r\n]+" do
                 local trimmed = vim.trim(line)
                 if #trimmed > 0 then
                     table.insert(results, trimmed)
