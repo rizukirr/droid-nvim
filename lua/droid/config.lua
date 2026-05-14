@@ -7,6 +7,7 @@ local defaults = {
         width = 80,
         float_width = 120,
         float_height = 30,
+        max_lines = 5000, -- ring-buffer cap; 0 disables trimming
         filters = {
             package = "mine", -- "mine" (auto-detect), specific package, or "none"
             log_level = "v", -- v, d, i, w, e, f
@@ -144,6 +145,9 @@ local function validate_config(cfg)
         end
         if cfg.logcat.width and (type(cfg.logcat.width) ~= "number" or cfg.logcat.width <= 0) then
             cfg.logcat.width = 80
+        end
+        if cfg.logcat.max_lines ~= nil and (type(cfg.logcat.max_lines) ~= "number" or cfg.logcat.max_lines < 0) then
+            cfg.logcat.max_lines = 5000
         end
     end
 end

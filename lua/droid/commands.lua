@@ -90,6 +90,10 @@ function M.setup_commands()
         logcat.stop()
     end, {})
 
+    vim.api.nvim_create_user_command("DroidLogcatClear", function()
+        logcat.clear()
+    end, {})
+
     vim.api.nvim_create_user_command("DroidLogcatFilter", function(opts)
         local filters = {}
 

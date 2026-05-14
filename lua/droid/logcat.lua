@@ -294,6 +294,21 @@ function M.start(adb, device_id, mode, override_filters)
 
                             vim.api.nvim_buf_set_lines(buf_info.buffer_id, -1, -1, false, filtered_data)
 
+                            -- Ring-buffer trim: keep at most max_lines lines.
+                            local max_lines = cfg.logcat.max_lines
+                            if max_lines and max_lines > 0 then
+                                local line_count = vim.api.nvim_buf_line_count(buf_info.buffer_id)
+                                if line_count > max_lines then
+                                    vim.api.nvim_buf_set_lines(
+                                        buf_info.buffer_id,
+                                        0,
+                                        line_count - max_lines,
+                                        false,
+                                        {}
+                                    )
+                                end
+                            end
+
                             -- Restore original modifiable state
                             vim.bo[buf_info.buffer_id].modifiable = was_modifiable
 
@@ -346,6 +361,24 @@ end
 function M.is_running()
     local buf_info = buffer.get_buffer_info()
     return buf_info.job_id ~= nil and buf_info.type == "logcat"
+end
+
+-- Clear the logcat buffer contents while leaving the streaming job alive.
+function M.clear()
+    local buf_info = buffer.get_buffer_info()
+    if not (buf_info.buffer_id and vim.api.nvim_buf_is_valid(buf_info.buffer_id)) then
+        vim.notify("No logcat buffer to clear", vim.log.levels.WARN)
+        return
+    end
+    if buf_info.type ~= "logcat" then
+        vim.notify("Active buffer is not logcat", vim.log.levels.WARN)
+        return
+    end
+
+    local was_modifiable = vim.bo[buf_info.buffer_id].modifiable
+    vim.bo[buf_info.buffer_id].modifiable = true
+    vim.api.nvim_buf_set_lines(buf_info.buffer_id, 0, -1, false, {})
+    vim.bo[buf_info.buffer_id].modifiable = was_modifiable
 end
 
 return M

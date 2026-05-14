@@ -290,6 +290,7 @@ When `android_cli` is active (default `"auto"` + `android` on PATH), the emulato
 | `:DroidLogcatFilter tag=MyTag` | Filter by tag |
 | `:DroidLogcatFilter package=mine` | Filter by package |
 | `:DroidLogcatFilter grep=Exception` | Filter by pattern |
+| `:DroidLogcatClear` | Clear the logcat buffer (keeps streaming) |
 | `:DroidLogcatStop` | Stop logcat |
 
 Combine filters: `:DroidLogcatFilter tag=MyTag log_level=d`
