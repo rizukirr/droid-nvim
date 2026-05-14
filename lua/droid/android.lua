@@ -392,6 +392,7 @@ function M.choose_target(adb, emulator, callback)
     M.get_all_targets(adb, emulator, function(targets)
         if #targets == 0 then
             vim.notify("No devices or emulators available", vim.log.levels.ERROR)
+            callback(nil)
             return
         end
 
@@ -406,9 +407,7 @@ function M.choose_target(adb, emulator, callback)
                 return item.name
             end,
         }, function(choice)
-            if choice then
-                callback(choice)
-            end
+            callback(choice)
         end)
     end)
 end
