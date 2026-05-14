@@ -62,6 +62,33 @@ After installation, install treesitter parsers for syntax highlighting (optional
 > **Note:** droid-nvim manages Kotlin, Java, and Groovy LSPs internally.
 > If you have other plugins configuring these LSPs (e.g., nvim-lspconfig, nvim-java), consider disabling them to avoid conflicts.
 
+### Selection UI (optional)
+
+droid-nvim's device/emulator/variant pickers go through `vim.ui.select`. With no
+override installed, Neovim falls back to a numbered cmdline prompt (`inputlist`).
+To get a floating picker, install any of the following — droid-nvim picks it up
+automatically with zero extra config:
+
+| Plugin | Notes |
+|---|---|
+| [`telescope-ui-select.nvim`](https://github.com/nvim-telescope/telescope-ui-select.nvim) | Routes `vim.ui.select` through Telescope. Best if you already use Telescope. |
+| [`snacks.nvim`](https://github.com/folke/snacks.nvim) (`snacks.picker`) | Modern, fast, actively maintained. |
+| [`fzf-lua`](https://github.com/ibhagwan/fzf-lua) | Register with `require("fzf-lua").register_ui_select()`. |
+| [`mini.pick`](https://github.com/echasnovski/mini.pick) | Lightweight, zero deps. Use `MiniPick.ui_select`. |
+
+Example with `telescope-ui-select`:
+
+```lua
+{
+  "nvim-telescope/telescope-ui-select.nvim",
+  dependencies = { "nvim-telescope/telescope.nvim" },
+  event = "VeryLazy",
+  config = function()
+    require("telescope").load_extension("ui-select")
+  end,
+}
+```
+
 ### Configuration
 
 All options are optional. Defaults shown below:
