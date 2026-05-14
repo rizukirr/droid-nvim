@@ -13,6 +13,11 @@ function M.start_spinner(message)
         M.spinner_timer:stop()
     end
 
+    -- Clear any lingering cmdline messages (e.g. from vim.ui.select's
+    -- inputlist prompt) so the spinner echo below doesn't overflow
+    -- cmdheight and trigger the hit-enter prompt every tick.
+    pcall(vim.cmd, "redraw")
+
     M.spinner_timer = vim.loop.new_timer()
     M.spinner_timer:start(
         0,
