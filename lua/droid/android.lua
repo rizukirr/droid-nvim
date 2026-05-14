@@ -5,30 +5,79 @@ local M = {}
 
 M._cached_sdk_path = nil
 
--- Simple function to find application ID from build.gradle (inspired by reference code)
-function M.find_application_id()
-    local gradle_candidates = { "app/build.gradle", "app/build.gradle.kts" }
+-- Locate the project root by walking up for settings.gradle{,.kts} or gradlew.
+local function find_project_root()
+    local markers = { "settings.gradle", "settings.gradle.kts", "gradlew" }
+    for _, m in ipairs(markers) do
+        local hit = vim.fs.find(m, { upward = true })[1]
+        if hit then
+            return vim.fs.dirname(hit)
+        end
+    end
+    return nil
+end
 
-    for _, candidate in ipairs(gradle_candidates) do
-        local gradle_path = vim.fs.find(candidate, { upward = true })[1]
-        if gradle_path and vim.fn.filereadable(gradle_path) == 1 then
-            local file = io.open(gradle_path, "r")
-            if file then
-                local content = file:read "*all"
-                file:close()
-
-                for line in content:gmatch "[^\r\n]+" do
-                    if line:find "applicationId" then
-                        local app_id = line:match ".*[\"']([^\"']+)[\"']"
-                        if app_id then
-                            return app_id
-                        end
-                    end
-                end
+-- Extract applicationId from a build.gradle{,.kts} body. Handles both
+-- Groovy (`applicationId "foo"`) and Kotlin DSL (`applicationId = "foo"`).
+local function extract_application_id(content)
+    for line in content:gmatch "[^\r\n]+" do
+        -- skip comments
+        if not line:match "^%s*//" and line:find "applicationId" then
+            local app_id = line:match "applicationId%s*=?%s*[\"']([^\"']+)[\"']"
+            if app_id then
+                return app_id
             end
         end
     end
     return nil
+end
+
+local _cached_application_id = nil
+local _cached_application_id_root = nil
+
+-- Find the project's applicationId. Searches every build.gradle{,.kts} under
+-- the project root, preferring modules that apply `com.android.application`.
+-- Result is cached per project root; call M.clear_application_id_cache() to
+-- invalidate after editing build files.
+function M.find_application_id()
+    local root = find_project_root() or vim.fn.getcwd()
+
+    if _cached_application_id and _cached_application_id_root == root then
+        return _cached_application_id
+    end
+
+    local gradle_files = vim.fs.find(function(name)
+        return name == "build.gradle" or name == "build.gradle.kts"
+    end, { path = root, type = "file", limit = math.huge })
+
+    local fallback = nil
+
+    for _, path in ipairs(gradle_files) do
+        local file = io.open(path, "r")
+        if file then
+            local content = file:read "*all"
+            file:close()
+
+            local app_id = extract_application_id(content)
+            if app_id then
+                if content:find "com%.android%.application" then
+                    _cached_application_id = app_id
+                    _cached_application_id_root = root
+                    return app_id
+                end
+                fallback = fallback or app_id
+            end
+        end
+    end
+
+    _cached_application_id = fallback
+    _cached_application_id_root = root
+    return fallback
+end
+
+function M.clear_application_id_cache()
+    _cached_application_id = nil
+    _cached_application_id_root = nil
 end
 
 -- Find main activity using adb cmd (inspired by reference code)
