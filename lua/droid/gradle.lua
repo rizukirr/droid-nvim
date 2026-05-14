@@ -28,12 +28,6 @@ function M.find_apks_for_variant(cwd, variant)
     return matches
 end
 
---- Locate gradlew without notifying on failure -- for callers that want
---- to handle "not found" themselves.
-function M.find_gradlew()
-    return find_gradlew()
-end
-
 local function find_gradlew()
     local gradlew = vim.fs.find("gradlew", { upward = true })[1]
     if gradlew and vim.fn.executable(gradlew) == 1 then
@@ -56,6 +50,12 @@ local function find_gradlew()
 
     vim.notify("gradlew not found in project", vim.log.levels.ERROR)
     return nil
+end
+
+--- Locate gradlew without notifying on failure -- for callers that want
+--- to handle "not found" themselves.
+function M.find_gradlew()
+    return find_gradlew()
 end
 
 local function run_gradle_task(cwd, gradlew, task, args, callback)
