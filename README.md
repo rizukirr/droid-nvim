@@ -45,7 +45,6 @@ setx PATH "%ANDROID_HOME%\emulator;%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\
 -- lazy.nvim (recommended: pin to a specific version)
 {
   "rizukirr/droid-nvim",
-  tag = "v0.0.2-beta.01",
   ft = { "kotlin", "java", "groovy", "xml" },
   dependencies = {
     "nvim-treesitter/nvim-treesitter",
@@ -54,22 +53,6 @@ setx PATH "%ANDROID_HOME%\emulator;%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\
   opts = {},
 }
 ```
-
-Or track latest (may include breaking changes):
-
-```lua
-{
-  "rizukirr/droid-nvim",
-  branch = "main",
-  ft = { "kotlin", "java", "groovy", "xml" },
-  dependencies = {
-    "nvim-treesitter/nvim-treesitter",
-    "mason-org/mason.nvim",
-  },
-  opts = {},
-}
-```
-
 After installation, install treesitter parsers for syntax highlighting (optional):
 
 ```vim
