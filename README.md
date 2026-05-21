@@ -378,4 +378,4 @@ The LSP successfully detects the Gradle project structure but does not build a c
 
 ## License
 
-GPLv3
+MIT
