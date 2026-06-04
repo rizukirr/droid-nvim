@@ -1,7 +1,7 @@
 ---
 title: kotlin-lsp native launcher
 date: 2026-06-05
-status: draft
+status: approved
 ---
 
 # kotlin-lsp native launcher — Design
