@@ -61,15 +61,17 @@ function M.get_version(java_bin)
     return ver
 end
 
---- Resolve the bundled JRE path, accounting for macOS layout
+--- Resolve candidate bundled JRE paths, accounting for macOS layout.
+--- JetBrains kotlin-lsp standalone ships its runtime as `jbr/`; older
+--- packages used `jre/`.
 ---@param pkg_dir string
----@return string
-function M.bundled_jre_dir(pkg_dir)
+---@return string[]
+function M.bundled_jre_dirs(pkg_dir)
     local uv = vim.uv or vim.loop
     if uv.os_uname().sysname == "Darwin" then
-        return pkg_dir .. "/jre/Contents/Home"
+        return { pkg_dir .. "/jre/Contents/Home", pkg_dir .. "/jbr/Contents/Home" }
     end
-    return pkg_dir .. "/jre"
+    return { pkg_dir .. "/jre", pkg_dir .. "/jbr" }
 end
 
 --- Locate a java binary for an LSP
@@ -82,7 +84,9 @@ function M.find_java(pkg_dir, cfg_jre_path)
 
     -- 1. Bundled JRE in LSP package
     if pkg_dir then
-        table.insert(candidates, M.bundled_jre_dir(pkg_dir) .. "/bin/java")
+        for _, dir in ipairs(M.bundled_jre_dirs(pkg_dir)) do
+            table.insert(candidates, dir .. "/bin/java")
+        end
     end
 
     -- 2. User config jre_path

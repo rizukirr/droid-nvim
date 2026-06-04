@@ -24,6 +24,27 @@ local function find_kotlin_lsp()
     }
 end
 
+--- Resolve the actual server root inside a package directory.
+--- Newer JetBrains kotlin-lsp Mason packages nest everything under a
+--- versioned `kotlin-server-<version>/` subdirectory; older ones keep
+--- `lib/` at the package root.
+---@param pkg_dir string
+---@return string
+local function resolve_server_root(pkg_dir)
+    if vim.fn.isdirectory(pkg_dir .. "/lib") == 1 then
+        return pkg_dir
+    end
+    local nested = vim.fn.glob(pkg_dir .. "/kotlin-server-*", false, true)
+    table.sort(nested)
+    -- Newest version last after sort; walk backwards to prefer it
+    for i = #nested, 1, -1 do
+        if vim.fn.isdirectory(nested[i] .. "/lib") == 1 then
+            return nested[i]
+        end
+    end
+    return pkg_dir
+end
+
 --- Find the lib directory containing .jar files and return a wildcard classpath.
 --- Checks `lib/` (JetBrains kotlin-lsp) first, falls back to `server/lib/` (legacy).
 --- Uses Java wildcard classpath (`dir/*`) which preserves CodeSource locations.
@@ -171,7 +192,7 @@ function M.start(cfg)
         return
     end
 
-    local pkg_dir = lsp_info.type ~= "binary" and lsp_info.path or nil
+    local pkg_dir = lsp_info.type ~= "binary" and resolve_server_root(lsp_info.path) or nil
 
     -- Find Java
     local java = jre.find_java(pkg_dir, cfg.lsp.jre_path)
