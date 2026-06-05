@@ -2,7 +2,6 @@
 
 local config = require "droid.config"
 local install = require "droid.lsp.shared.install"
-local jre = require "droid.lsp.shared.jre"
 
 local M = {}
 
@@ -45,19 +44,22 @@ local function resolve_server_root(pkg_dir)
     return pkg_dir
 end
 
---- Find the lib directory containing .jar files and return a wildcard classpath.
---- Checks `lib/` (JetBrains kotlin-lsp) first, falls back to `server/lib/` (legacy).
---- Uses Java wildcard classpath (`dir/*`) which preserves CodeSource locations.
----@param pkg_dir string
----@return string|nil classpath
-local function find_lib_classpath(pkg_dir)
-    for _, sub in ipairs { "/lib", "/server/lib" } do
-        local lib = pkg_dir .. sub
-        if vim.fn.isdirectory(lib) == 1 then
-            local jars = vim.fn.glob(lib .. "/*.jar", false, true)
-            if #jars > 0 then
-                return lib .. "/*"
-            end
+--- Find the official native launcher inside a server root.
+--- kotlin-lsp packages since 262.x ship `bin/intellij-server` (Linux/macOS,
+--- `.bat`/`.exe` on Windows). The launcher bundles its own JBR and sets up the
+--- IntelliJ module system the server requires - a plain `java -cp` cannot
+--- start it (the old Kotlin LSP main-class entry point no longer exists).
+---@param server_root string
+---@return string|nil launcher absolute launcher path, nil when missing
+local function find_launcher(server_root)
+    for _, rel in ipairs {
+        "/bin/intellij-server",
+        "/bin/intellij-server.bat",
+        "/bin/intellij-server.exe",
+    } do
+        local path = server_root .. rel
+        if vim.fn.executable(path) == 1 then
+            return path
         end
     end
     return nil
@@ -194,96 +196,31 @@ function M.start(cfg)
 
     local pkg_dir = lsp_info.type ~= "binary" and resolve_server_root(lsp_info.path) or nil
 
-    -- Find Java
-    local java = jre.find_java(pkg_dir, cfg.lsp.jre_path)
-    if not java then
-        vim.notify("droid.nvim: Java not found - install Java 21+ or set lsp.jre_path", vim.log.levels.ERROR)
-        return
-    end
-
-    -- Validate Java version
-    local ok, err = jre.check(java, 21, "kotlin-lsp")
-    if not ok then
-        vim.notify("droid.nvim: " .. err, vim.log.levels.ERROR)
-        return
-    end
-
-    -- Build the server command
+    -- Build the server command. The native launcher bundles its own JBR, so
+    -- no host Java detection or version check is needed.
     local ws = workspace_for(vim.fn.getcwd())
     local cmd
 
     if pkg_dir then
-        local cp = find_lib_classpath(pkg_dir)
-        if not cp then
-            vim.notify("droid.nvim: no jars in " .. pkg_dir .. "/lib", vim.log.levels.ERROR)
+        local launcher = find_launcher(pkg_dir)
+        if not launcher then
+            vim.notify(
+                "droid.nvim: kotlin-lsp launcher not found at "
+                    .. pkg_dir
+                    .. "/bin/intellij-server - update the package (:MasonInstall kotlin-lsp)",
+                vim.log.levels.ERROR
+            )
             return
         end
-        cmd = { java }
-        -- stylua: ignore start
-        vim.list_extend(cmd, {
-            "--add-opens=java.base/java.io=ALL-UNNAMED",
-            "--add-opens=java.base/java.lang=ALL-UNNAMED",
-            "--add-opens=java.base/java.lang.ref=ALL-UNNAMED",
-            "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-            "--add-opens=java.base/java.net=ALL-UNNAMED",
-            "--add-opens=java.base/java.nio=ALL-UNNAMED",
-            "--add-opens=java.base/java.nio.charset=ALL-UNNAMED",
-            "--add-opens=java.base/java.text=ALL-UNNAMED",
-            "--add-opens=java.base/java.time=ALL-UNNAMED",
-            "--add-opens=java.base/java.util=ALL-UNNAMED",
-            "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
-            "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
-            "--add-opens=java.base/java.util.concurrent.locks=ALL-UNNAMED",
-            "--add-opens=java.base/jdk.internal.vm=ALL-UNNAMED",
-            "--add-opens=java.base/sun.net.dns=ALL-UNNAMED",
-            "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-            "--add-opens=java.base/sun.nio.fs=ALL-UNNAMED",
-            "--add-opens=java.base/sun.security.ssl=ALL-UNNAMED",
-            "--add-opens=java.base/sun.security.util=ALL-UNNAMED",
-            "--add-opens=java.desktop/com.apple.eawt=ALL-UNNAMED",
-            "--add-opens=java.desktop/com.apple.eawt.event=ALL-UNNAMED",
-            "--add-opens=java.desktop/com.apple.laf=ALL-UNNAMED",
-            "--add-opens=java.desktop/com.sun.java.swing=ALL-UNNAMED",
-            "--add-opens=java.desktop/com.sun.java.swing.plaf.gtk=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.dnd.peer=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.event=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.image=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED",
-            "--add-opens=java.desktop/javax.swing=ALL-UNNAMED",
-            "--add-opens=java.desktop/javax.swing.plaf.basic=ALL-UNNAMED",
-            "--add-opens=java.desktop/javax.swing.text=ALL-UNNAMED",
-            "--add-opens=java.desktop/javax.swing.text.html=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.awt.datatransfer=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.awt.image=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.awt.windows=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.font=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.java2d=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.swing=ALL-UNNAMED",
-            "--add-opens=java.management/sun.management=ALL-UNNAMED",
-            "--add-opens=jdk.attach/sun.tools.attach=ALL-UNNAMED",
-            "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
-            "--add-opens=jdk.internal.jvmstat/sun.jvmstat.monitor=ALL-UNNAMED",
-            "--add-opens=jdk.jdi/com.sun.tools.jdi=ALL-UNNAMED",
-            "--enable-native-access=ALL-UNNAMED",
-            "-Djdk.lang.Process.launchMechanism=FORK",
-            "-Djava.awt.headless=true",
-        })
-        -- stylua: ignore end
-        vim.list_extend(cmd, kotlin_cfg.jvm_args or {})
-        vim.list_extend(cmd, {
-            "-cp",
-            cp,
-            "com.jetbrains.ls.kotlinLsp.KotlinLspServerKt",
-            "--stdio",
-            "--system-path",
-            ws,
-        })
+        if next(kotlin_cfg.jvm_args or {}) then
+            vim.notify(
+                "droid.nvim: lsp.kotlin.jvm_args is ignored with the native kotlin-lsp launcher - edit "
+                    .. pkg_dir
+                    .. "/bin/intellij-server.vmoptions instead",
+                vim.log.levels.WARN
+            )
+        end
+        cmd = { launcher, "--stdio", "--system-path", ws }
     else
         -- Using binary from PATH
         cmd = { lsp_info.path, "--stdio", "--system-path", ws }
