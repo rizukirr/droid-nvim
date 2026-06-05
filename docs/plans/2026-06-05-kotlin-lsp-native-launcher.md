@@ -77,7 +77,7 @@ with:
 --- kotlin-lsp packages since 262.x ship `bin/intellij-server` (Linux/macOS,
 --- `.bat`/`.exe` on Windows). The launcher bundles its own JBR and sets up the
 --- IntelliJ module system the server requires - a plain `java -cp` cannot
---- start it (the old KotlinLspServerKt entry point no longer exists).
+--- start it (the old Kotlin LSP main-class entry point no longer exists).
 ---@param server_root string
 ---@return string|nil launcher absolute launcher path, nil when missing
 local function find_launcher(server_root)
