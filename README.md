@@ -103,7 +103,7 @@ require("droid").setup({
         kotlin = {
             enabled = true,
             jdk_for_symbol_resolution = nil,
-            jvm_args = {},
+            jvm_args = {},                 -- ignored by kotlin-lsp (uses bundled launcher)
             root_markers = nil,
             suppress_diagnostics = {},     -- e.g. { "PackageDirectoryMismatch" }
             inlay_hints = {
@@ -183,7 +183,7 @@ For each LSP, droid.nvim searches in this order:
 3. **System PATH** — `kotlin-lsp`, `jdtls`, or `groovy-language-server`
 4. **Auto-install via Mason** — If not found, automatically installs
 
-Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`.
+Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`. (kotlin-lsp is exempt — its native launcher ships a bundled JBR.)
 
 #### Disabling LSPs
 
