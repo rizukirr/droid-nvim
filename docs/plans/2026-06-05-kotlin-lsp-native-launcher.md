@@ -214,7 +214,7 @@ detection, version check, and --add-opens block."
 - Modify: `lua/droid/config.lua:26`
 - Modify: `README.md:106` and `README.md:186`
 
-- [ ] **Step 1: Update the `kotlin.jvm_args` comment in config.lua**
+- [x] **Step 1: Update the `kotlin.jvm_args` comment in config.lua**
 
 In `lua/droid/config.lua` line 26, change:
 
@@ -228,7 +228,7 @@ In `lua/droid/config.lua` line 26, change:
             jvm_args = {}, -- Ignored by the native kotlin-lsp launcher; edit bin/intellij-server.vmoptions instead
 ```
 
-- [ ] **Step 2: Update README**
+- [x] **Step 2: Update README**
 
 In `README.md` line 106 (inside the `kotlin = {` example block), change:
 
@@ -256,7 +256,7 @@ to:
 Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`. (kotlin-lsp is exempt — its native launcher ships a bundled JBR.)
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run:
 
@@ -269,7 +269,7 @@ grep -c "bundled JBR" README.md
 
 Expected: `1`, exit 0 with no output, `1`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/rizki/Projects/droid-nvim
