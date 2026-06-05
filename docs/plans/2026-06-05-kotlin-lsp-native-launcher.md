@@ -283,7 +283,7 @@ git commit -m "docs: note kotlin jvm_args is ignored by the native launcher"
 
 **Files:** none modified — read-only verification.
 
-- [ ] **Step 1: Verify launcher resolution logic against the installed package and the missing case**
+- [x] **Step 1: Verify launcher resolution logic against the installed package and the missing case**
 
 `find_launcher` is file-local, so verify its logic standalone with the same expressions:
 
@@ -309,7 +309,7 @@ FOUND=/home/rizki/.local/share/nvim/mason/packages/kotlin-lsp/kotlin-server-262.
 MISSING=nil
 ```
 
-- [ ] **Step 2: Verify the launcher binary actually runs**
+- [x] **Step 2: Verify the launcher binary actually runs**
 
 Run: `~/.local/share/nvim/mason/packages/kotlin-lsp/kotlin-server-262.4739.0/bin/intellij-server --version; echo "exit=$?"`
 Expected (observed during planning):
@@ -319,6 +319,6 @@ LS-262.4739.0
 exit=0
 ```
 
-- [ ] **Step 3: Report manual end-to-end check to the user**
+- [x] **Step 3: Report manual end-to-end check to the user**
 
 No commit in this task. Tell the user the implementation is in and ask them to run the live check (this is the part only they can do): restart Neovim, open a `.kt` file in a Gradle project, then confirm `kotlin_ls` attaches (`:checkhealth vim.lsp` or `:lua print(#vim.lsp.get_clients({name='kotlin_ls'}))` → `1`) and that `~/.local/state/nvim/lsp.log` shows no new `ClassNotFoundException` entries.
