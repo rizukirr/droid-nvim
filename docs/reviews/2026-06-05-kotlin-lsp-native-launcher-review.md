@@ -30,7 +30,7 @@ None.
 
 ### Nit
 
-- Pre-existing stylua drift in `lua/droid/logcat.lua:302-308` (present at base f7850f6, untouched by this branch). Out of scope; noted for a future cleanup.
+- ~~Pre-existing stylua drift in `lua/droid/logcat.lua:302-308`~~ **Fixed** during review at the user's explicit request: `stylua lua/droid/logcat.lua` (+1/−7), committed separately as `style: format logcat.lua with stylua (pre-existing drift)`. Whole-tree `stylua --check lua/` now exits 0. Both warns are not code-fixable (Warn 1: upstream expired build, user-accepted; Warn 2: requires a Windows host to observe).
 
 ## Self-critique (three risks)
 
