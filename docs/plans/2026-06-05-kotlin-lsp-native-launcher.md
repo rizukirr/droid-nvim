@@ -34,7 +34,7 @@ There is no automated test suite in this repo. Verification uses headless-Neovim
 - Modify: `lua/droid/lsp/kotlin/init.lua:48-64` (replace `find_lib_classpath` with `find_launcher`)
 - Modify: `lua/droid/lsp/kotlin/init.lua:195-290` (rewrite cmd-building block in `M.start`)
 
-- [ ] **Step 1: Remove the unused `jre` import**
+- [x] **Step 1: Remove the unused `jre` import**
 
 In `lua/droid/lsp/kotlin/init.lua`, the imports currently read (lines 3-5):
 
@@ -46,7 +46,7 @@ local jre = require "droid.lsp.shared.jre"
 
 Delete the line `local jre = require "droid.lsp.shared.jre"` — after Step 3 nothing in this file uses it. Do NOT delete `lua/droid/lsp/shared/jre.lua` itself; `lua/droid/lsp/java/init.lua` and `lua/droid/lsp/groovy/init.lua` still require it.
 
-- [ ] **Step 2: Replace `find_lib_classpath()` with `find_launcher()`**
+- [x] **Step 2: Replace `find_lib_classpath()` with `find_launcher()`**
 
 Replace this entire function (currently at `lua/droid/lsp/kotlin/init.lua:48-64`):
 
@@ -95,7 +95,7 @@ local function find_launcher(server_root)
 end
 ```
 
-- [ ] **Step 3: Rewrite the cmd-building block in `M.start()`**
+- [x] **Step 3: Rewrite the cmd-building block in `M.start()`**
 
 In `M.start()`, replace everything from the `-- Find Java` comment through the end of the `if pkg_dir then ... else ... end` cmd construction (currently `lua/droid/lsp/kotlin/init.lua:197-290` — the `jre.find_java` call, the `jre.check` call, the `ws`/`cmd` declarations, the ~50-line `--add-opens` list, the `jvm_args` extend, and the `-cp`/main-class args):
 
@@ -175,7 +175,7 @@ Notes for the executing agent:
 - Everything after this block (`make_settings`, `init_opts`, `root_markers`, `vim.lsp.config`, `vim.lsp.enable`, inlay-hint autocmd) is unchanged.
 - The variable `kotlin_cfg.jdk_for_symbol_resolution` → `init_options.defaultJdk` is unrelated to host-Java detection and stays.
 
-- [ ] **Step 4: Verify the module loads and the old entry point is gone**
+- [x] **Step 4: Verify the module loads and the old entry point is gone**
 
 Run:
 
@@ -188,12 +188,12 @@ grep -c "find_lib_classpath\|jre\." lua/droid/lsp/kotlin/init.lua || true
 
 Expected: first command outputs `1` (module loads; unrelated plugin noise like `image.nvim: cannot query terminal size` on stderr is normal and ignored by the grep). Second command outputs `0`. Third command outputs `0`.
 
-- [ ] **Step 5: Check formatting**
+- [x] **Step 5: Check formatting**
 
 Run: `stylua --check lua/droid/lsp/kotlin/init.lua`
 Expected: exit code 0, no output. If it fails, run `stylua lua/droid/lsp/kotlin/init.lua` and re-check.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/rizki/Projects/droid-nvim
