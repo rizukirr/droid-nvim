@@ -299,13 +299,7 @@ function M.start(adb, device_id, mode, override_filters)
                             if max_lines and max_lines > 0 then
                                 local line_count = vim.api.nvim_buf_line_count(buf_info.buffer_id)
                                 if line_count > max_lines then
-                                    vim.api.nvim_buf_set_lines(
-                                        buf_info.buffer_id,
-                                        0,
-                                        line_count - max_lines,
-                                        false,
-                                        {}
-                                    )
+                                    vim.api.nvim_buf_set_lines(buf_info.buffer_id, 0, line_count - max_lines, false, {})
                                 end
                             end
 
