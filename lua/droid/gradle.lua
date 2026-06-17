@@ -28,13 +28,25 @@ function M.find_apks_for_variant(cwd, variant)
     return matches
 end
 
+local is_windows = vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1
+
 local function find_gradlew()
-    local gradlew = vim.fs.find("gradlew", { upward = true })[1]
-    if gradlew and vim.fn.executable(gradlew) == 1 then
+    -- On Windows the wrapper is gradlew.bat; the Unix `gradlew` shell script
+    -- is not executable there and `chmod` does not exist.
+    local name = is_windows and "gradlew.bat" or "gradlew"
+    local gradlew = vim.fs.find(name, { upward = true })[1]
+
+    if not gradlew then
+        vim.notify(name .. " not found in project", vim.log.levels.ERROR)
+        return nil
+    end
+
+    -- .bat files are directly executable on Windows; no permission fix needed.
+    if is_windows or vim.fn.executable(gradlew) == 1 then
         return { gradlew = gradlew, cwd = vim.fs.dirname(gradlew) }
     end
 
-    if gradlew and vim.fn.filereadable(gradlew) == 1 then
+    if vim.fn.filereadable(gradlew) == 1 then
         vim.notify(
             "gradlew found but not executable: " .. gradlew .. " - attempting to fix permissions...",
             vim.log.levels.WARN
@@ -59,8 +71,10 @@ function M.find_gradlew()
 end
 
 local function run_gradle_task(cwd, gradlew, task, args, callback)
-    local cmd_args = vim.iter({ task, args or {} }):flatten():totable()
-    local cmd = gradlew .. " " .. table.concat(cmd_args, " ")
+    -- List form so paths with separators/spaces are passed verbatim to the
+    -- PTY rather than through a shell that may mis-parse them (notably the
+    -- forward-slash gradlew.bat path on Windows cmd.exe).
+    local cmd = vim.iter({ gradlew, task, args or {} }):flatten():totable()
 
     local buf, win = buffer.get_or_create("gradle", "horizontal")
 
