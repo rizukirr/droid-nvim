@@ -5,14 +5,11 @@
 ---   dap.configurations.kotlin = require("droid.lsp.dap").default_configs()
 --- Mirrors the reference client dap.ts (start_debug_server + resolvers).
 
+local lsp_client = require "droid.lsp.client"
+
 local M = {}
 
 local DEBUG_TYPE = "intellij_debugger"
-
----@return vim.lsp.Client|nil
-local function kotlin_client()
-    return (vim.lsp.get_clients { name = "kotlin_ls" })[1]
-end
 
 ---@param client vim.lsp.Client
 ---@param command string
@@ -36,7 +33,8 @@ local function make_enrich_config(client)
         exec(client, "intellij.java.resolveClassDocument", { { fqn = config.mainClass } }, function(e1, doc)
             local uri = config.file and vim.uri_from_fname(config.file) or (type(doc) == "table" and doc.uri)
             if not uri then
-                vim.notify("intellij_debugger: could not resolve class document", vim.log.levels.ERROR)
+                local detail = e1 and (": " .. tostring(e1)) or ""
+                vim.notify("intellij_debugger: could not resolve class document" .. detail, vim.log.levels.ERROR)
                 return on_config(config)
             end
             exec(client, "intellij.java.resolveClasspath", { { uri = uri } }, function(_, cp)
@@ -59,7 +57,7 @@ end
 ---@return fun(callback:fun(adapter:table), config:table)
 function M.adapter()
     return function(callback, _config)
-        local client = kotlin_client()
+        local client = lsp_client.kotlin()
         if not client then
             -- vibekit: ceiling — cannot abort a dap function-adapter cleanly, so we
             -- notify and leave dap in "starting" (user cancels). Upgrade: expose a
@@ -67,7 +65,9 @@ function M.adapter()
             vim.notify("intellij_debugger: kotlin_ls not attached", vim.log.levels.ERROR)
             return
         end
-        local root = vim.uri_from_fname(vim.fn.getcwd())
+        -- Prefer the server's project root over the editor cwd (which may be a
+        -- subdirectory or unrelated in multi-root setups).
+        local root = vim.uri_from_fname(client.root_dir or vim.fn.getcwd())
         exec(client, "start_debug_server", { root }, function(err, res)
             if err or res == nil then
                 vim.schedule(function()
@@ -75,7 +75,13 @@ function M.adapter()
                 end)
                 return
             end
-            local port = type(res) == "table" and (res.port or res.result) or res
+            local port = tonumber(type(res) == "table" and (res.port or res.result) or res)
+            if not port then
+                vim.schedule(function()
+                    vim.notify("intellij_debugger: start_debug_server returned no usable port", vim.log.levels.ERROR)
+                end)
+                return
+            end
             callback {
                 type = "server",
                 host = "127.0.0.1",

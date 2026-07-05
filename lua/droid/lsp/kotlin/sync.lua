@@ -4,8 +4,13 @@
 --- import, whose progress streams back through `on_import_log`.
 
 local progress = require "droid.progress"
+local lsp_client = require "droid.lsp.client"
 
 local M = {}
+
+--- Cap on the import-log buffer so a long session with many reloads does not
+--- grow it without bound.
+local MAX_LOG_LINES = 5000
 
 --- Build files that, when saved, should trigger a workspace reload.
 --- Mirrors the reference client buildFiles.ts.
@@ -64,6 +69,11 @@ local function append(line)
     else
         vim.api.nvim_buf_set_lines(b, -1, -1, false, { line })
     end
+    -- Trim the oldest lines once the buffer exceeds the cap.
+    local total = vim.api.nvim_buf_line_count(b)
+    if total > MAX_LOG_LINES then
+        vim.api.nvim_buf_set_lines(b, 0, total - MAX_LOG_LINES, false, {})
+    end
 end
 
 --- Open (creating if needed) and focus the import-log buffer.
@@ -100,8 +110,13 @@ function M.on_import_log(_kotlin_cfg, params)
         progress.stop_spinner()
         vim.notify("Project import complete", vim.log.levels.INFO)
     else
-        -- Non-terminal progress line: keep the spinner alive with the latest label.
-        progress.start_spinner(line)
+        -- Non-terminal progress line: keep the spinner alive with the latest label
+        -- without restarting the timer on every message.
+        if progress.spinner_timer then
+            progress.current_message = line
+        else
+            progress.start_spinner(line)
+        end
     end
 end
 
@@ -109,14 +124,9 @@ end
 -- Workspace reload
 ---------------------------------------------------------------------------
 
----@return vim.lsp.Client|nil
-local function kotlin_client()
-    return (vim.lsp.get_clients { name = "kotlin_ls" })[1]
-end
-
 --- Send `intellij/reloadWorkspace`. Progress/failure streams back via importLog.
 function M.reload()
-    local c = kotlin_client()
+    local c = lsp_client.kotlin()
     if not c then
         vim.notify("droid.nvim: kotlin_ls not attached — cannot reload workspace", vim.log.levels.WARN)
         return
@@ -150,7 +160,7 @@ function M.setup_auto_reload(kotlin_cfg)
             if not M.is_build_file(ev.file) then
                 return
             end
-            if not kotlin_client() then
+            if not lsp_client.kotlin() then
                 return
             end
             M.reload()
