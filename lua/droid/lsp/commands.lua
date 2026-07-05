@@ -168,6 +168,16 @@ function M.setup()
             end)
         end)
     end, {})
+
+    -- Open the Kotlin LSP project-sync log
+    cmd("DroidLspLog", function()
+        require("droid.lsp.kotlin.sync").open_log()
+    end, {})
+
+    -- Manually reload the Kotlin LSP workspace (re-import the project model)
+    cmd("DroidLspRefresh", function()
+        require("droid.lsp.kotlin.sync").reload()
+    end, {})
 end
 
 return M

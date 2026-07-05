@@ -225,9 +225,43 @@ return {
 }
 ```
 
+#### Kotlin project sync & cross-language
+
+```lua
+lsp = {
+  kotlin = {
+    attach_to_java = false, -- attach kotlin_ls to Java buffers too (keeps Kotlin
+                            -- cross-language analysis fresh; note: doubles LSP
+                            -- providers with jdtls on Java files)
+    auto_reload = true,     -- reload the LSP workspace when a build file is saved
+  },
+}
+```
+
+- `:DroidLspRefresh` — manually re-import the project model (Gradle/Maven sync).
+- `:DroidLspLog` — open the project-sync log; import failures are also toasted.
+
+This is the language-server project *sync* (like Android Studio's "Sync Project
+with Gradle Files"), not the `:DroidBuild` APK build.
+
 #### Decompilation
 
 Navigating to a class from a dependency (e.g., go-to-definition on a library symbol) automatically decompiles the `.class` file via `jar://` and `jrt://` protocol handlers. Works with both Kotlin and Java LSPs.
+
+#### Debugging (optional, requires nvim-dap)
+
+droid stays dependency-free and does not bundle nvim-dap. If you already use it,
+wire the Kotlin debug adapter in two lines:
+
+```lua
+local dap = require("dap")
+dap.adapters.intellij_debugger = require("droid.lsp.dap").adapter()
+dap.configurations.kotlin = require("droid.lsp.dap").default_configs()
+```
+
+The adapter starts the kotlin-lsp debug server and resolves classpath, the Java
+executable, and the main-class location automatically. Requires `kotlin_ls` to
+be attached.
 
 ## Commands
 
@@ -311,6 +345,8 @@ These commands work in `.kt`, `.java`, and `.groovy` buffers with their respecti
 | `:DroidQuickFix` | Quick fix for diagnostics on current line |
 | `:DroidInlayHintsToggle` | Toggle inlay hints for current buffer |
 | `:DroidHintsToggle` | Toggle HINT-severity diagnostics |
+| `:DroidLspRefresh` | Reload the Kotlin LSP workspace (re-import project model) |
+| `:DroidLspLog` | Open the Kotlin LSP project-sync log |
 | `:DroidExportWorkspace` | Export workspace config to JSON (Kotlin only) |
 | `:DroidCleanWorkspace` | Stop all LSPs and clean cached workspaces |
 | `:DroidLspStop` | Stop all LSP servers |

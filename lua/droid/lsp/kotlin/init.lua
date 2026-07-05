@@ -2,6 +2,7 @@
 
 local config = require "droid.config"
 local install = require "droid.lsp.shared.install"
+local sync = require "droid.lsp.kotlin.sync"
 
 local M = {}
 
@@ -173,6 +174,31 @@ end
 -- Core lazy initialisation (runs on first FileType kotlin)
 ---------------------------------------------------------------------------
 
+--- Build the initializationOptions table for kotlin_ls.
+--- The server uses `defaultSdk` (see reference client lspClient.ts); an earlier
+--- `defaultJdk` key was silently ignored.
+---@param kotlin_cfg table
+---@return table
+function M._init_options(kotlin_cfg)
+    local init_opts = {}
+    if kotlin_cfg.jdk_for_symbol_resolution then
+        init_opts.defaultSdk = kotlin_cfg.jdk_for_symbol_resolution
+    end
+    return init_opts
+end
+
+--- Filetypes kotlin_ls attaches to. Java is opt-in: attaching keeps Kotlin's
+--- cross-language analysis fresh but doubles LSP providers with jdtls.
+---@param kotlin_cfg table
+---@return string[]
+function M._filetypes(kotlin_cfg)
+    local ft = { "kotlin" }
+    if kotlin_cfg.attach_to_java then
+        table.insert(ft, "java")
+    end
+    return ft
+end
+
 ---@param cfg table Full plugin config
 function M.start(cfg)
     if initialised or vim.b.droid_lsp_disabled then
@@ -227,10 +253,7 @@ function M.start(cfg)
     end
 
     local settings = make_settings(kotlin_cfg)
-    local init_opts = {}
-    if kotlin_cfg.jdk_for_symbol_resolution then
-        init_opts.defaultJdk = kotlin_cfg.jdk_for_symbol_resolution
-    end
+    local init_opts = M._init_options(kotlin_cfg)
 
     -- Default root markers for Android/Kotlin projects
     local root_markers = kotlin_cfg.root_markers
@@ -247,7 +270,7 @@ function M.start(cfg)
 
     vim.lsp.config("kotlin_ls", {
         cmd = cmd,
-        filetypes = { "kotlin" },
+        filetypes = M._filetypes(kotlin_cfg),
         root_markers = root_markers,
         settings = settings,
         init_options = init_opts,
@@ -260,9 +283,13 @@ function M.start(cfg)
             ["workspace/configuration"] = function(_, params, _)
                 return handle_workspace_configuration(kotlin_cfg, params.items)
             end,
+            ["intellij/importLog"] = function(_, params, _)
+                sync.on_import_log(kotlin_cfg, params)
+            end,
         },
     })
     vim.lsp.enable "kotlin_ls"
+    sync.setup_auto_reload(kotlin_cfg)
 
     -- Auto-enable inlay hints when kotlin_ls attaches
     local ih = kotlin_cfg.inlay_hints
