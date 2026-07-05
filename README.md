@@ -60,8 +60,8 @@ droid-nvim is dependency-free. Two optional plugins improve the experience:
   `:TSInstall kotlin java groovy`. Without it, droid falls back to Neovim's
   bundled `kotlin`/`java`/`groovy` syntax and a regex parser.
 
-> **Note:** droid-nvim manages Kotlin, Java, and Groovy LSPs internally.
-> If you have other plugins configuring these LSPs (e.g., nvim-lspconfig, nvim-java), consider disabling them to avoid conflicts.
+> [!Important]
+> droid-nvim manages Kotlin, Java, and Groovy LSPs internally. If you have other plugins configuring these LSPs (e.g., nvim-lspconfig, nvim-java), consider disabling them to avoid conflicts.
 
 ### Selection UI (optional)
 
