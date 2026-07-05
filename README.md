@@ -263,6 +263,41 @@ The adapter starts the kotlin-lsp debug server and resolves classpath, the Java
 executable, and the main-class location automatically. Requires `kotlin_ls` to
 be attached.
 
+### Editor experience (Kotlin)
+
+Small quality-of-life features for editing `.kt` buffers. Everything below is on
+by default and configured under the `editor` group:
+
+```lua
+editor = {
+  indent = true,          -- restore Neovim's built-in Kotlin indenter
+  file_templates = true,  -- offer scaffolds when creating an empty .kt file
+  templates = {},         -- extra file templates (merged with the built-ins)
+}
+```
+
+#### Indentation
+
+droid does not ship its own indenter. Neovim already bundles
+`indent/kotlin.vim` (`GetKotlinIndent`), and droid's `after/ftplugin/kotlin.lua`
+simply restores `GetKotlinIndent()` as `indentexpr` when another plugin
+(typically nvim-treesitter's unmaintained indent module) has overridden it. Set
+`editor.indent = false` to opt out.
+
+#### `:DroidKdoc`
+
+Generates a `/** … */` KDoc stub — with `@param` and `@return` tags — for the
+Kotlin function under the cursor. Uses treesitter when available and falls back
+to a regex parser otherwise.
+
+#### File templates
+
+Creating a new, empty `.kt` file offers a picker of scaffolds — Class,
+Interface, Data class, Object, Enum, and Sealed class — with the package and
+type name interpolated by the language server. Add your own via
+`editor.templates` (merged with the built-ins), or disable the feature with
+`editor.file_templates = false`.
+
 ## Commands
 
 ### Workflow
@@ -347,6 +382,7 @@ These commands work in `.kt`, `.java`, and `.groovy` buffers with their respecti
 | `:DroidHintsToggle` | Toggle HINT-severity diagnostics |
 | `:DroidLspRefresh` | Reload the Kotlin LSP workspace (re-import project model) |
 | `:DroidLspLog` | Open the Kotlin LSP project-sync log |
+| `:DroidKdoc` | Generate a KDoc stub for the Kotlin function under the cursor |
 | `:DroidExportWorkspace` | Export workspace config to JSON (Kotlin only) |
 | `:DroidCleanWorkspace` | Stop all LSPs and clean cached workspaces |
 | `:DroidLspStop` | Stop all LSP servers |

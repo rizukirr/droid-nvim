@@ -10,6 +10,7 @@ function M.setup(opts)
     config.setup(opts)
     commands.setup_commands()
     lsp.setup()
+    require("droid.kotlin").setup(config.get())
 end
 
 M.build_and_run = actions.build_and_run
