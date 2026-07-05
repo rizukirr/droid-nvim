@@ -79,6 +79,12 @@ local defaults = {
     -- :DroidInstall stays on the gradle path either way (android run
     -- cannot install without launching).
     android_cli = "auto",
+    -- Editor-experience features for Kotlin buffers. Independent of `lsp`.
+    editor = {
+        indent = true, -- restore Neovim's built-in GetKotlinIndent() when a plugin (e.g. treesitter indent) has overridden it
+        file_templates = true, -- offer templates when creating a new .kt file
+        templates = {}, -- user template map merged over defaults: { ["Name"] = "body" }
+    },
 }
 
 M.config = vim.deepcopy(defaults)
