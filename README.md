@@ -46,18 +46,19 @@ setx PATH "%ANDROID_HOME%\emulator;%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\
 {
   "rizukirr/droid-nvim",
   ft = { "kotlin", "java", "groovy", "xml" },
-  dependencies = {
-    "nvim-treesitter/nvim-treesitter",
-    "mason-org/mason.nvim", -- Recommended for auto-installing LSPs
-  },
   opts = {},
 }
 ```
-After installation, install treesitter parsers for syntax highlighting (optional):
 
-```vim
-:TSInstall kotlin java groovy
-```
+droid-nvim is dependency-free. Two optional plugins improve the experience:
+
+- **`mason-org/mason.nvim`** — recommended, so droid can auto-install the Kotlin,
+  Java, and Groovy language servers. Without it, put the servers on your `$PATH`
+  or set `$KOTLIN_LSP_DIR`.
+- **`nvim-treesitter/nvim-treesitter`** — optional; richer syntax highlighting and
+  more accurate `:DroidKdoc` signature parsing. Install the parsers with
+  `:TSInstall kotlin java groovy`. Without it, droid falls back to Neovim's
+  bundled `kotlin`/`java`/`groovy` syntax and a regex parser.
 
 > **Note:** droid-nvim manages Kotlin, Java, and Groovy LSPs internally.
 > If you have other plugins configuring these LSPs (e.g., nvim-lspconfig, nvim-java), consider disabling them to avoid conflicts.
