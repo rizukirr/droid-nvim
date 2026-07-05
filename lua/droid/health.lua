@@ -78,9 +78,25 @@ local function check_sdk_tools()
     check_tool("avdmanager", android.get_avdmanager_path())
 end
 
+local function check_kotlin_lsp()
+    vim.health.start "droid.nvim: Kotlin LSP"
+    local clients = vim.lsp.get_clients { name = "kotlin_ls" }
+    if #clients > 0 then
+        vim.health.ok("kotlin_ls attached (" .. #clients .. " client(s))")
+    else
+        vim.health.info("kotlin_ls not attached — open a .kt file inside a Gradle/Maven project")
+    end
+    if pcall(require, "dap") then
+        vim.health.ok("nvim-dap present — wire require('droid.lsp.dap') for Kotlin debugging")
+    else
+        vim.health.info("nvim-dap not installed (optional; needed only for debugging via droid.lsp.dap)")
+    end
+end
+
 function M.check()
     check_android_cli()
     check_sdk_tools()
+    check_kotlin_lsp()
 end
 
 return M
