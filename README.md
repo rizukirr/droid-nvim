@@ -451,6 +451,7 @@ The LSP successfully detects the Gradle project structure but does not build a c
 - Organize imports (`:DroidImports`)
 
 **What may not work:**
+- Jetpack Compose or KMP is not supported yet
 - Go-to-definition across files (e.g., jumping from MainActivity to MainViewModel in another file)
 - Find-references across the workspace
 - Workspace symbol search (`:DroidWorkspaceSymbols`)
