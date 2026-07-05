@@ -284,6 +284,21 @@ simply restores `GetKotlinIndent()` as `indentexpr` when another plugin
 (typically nvim-treesitter's unmaintained indent module) has overridden it. Set
 `editor.indent = false` to opt out.
 
+This only restores the indent *engine* — the number of spaces per level comes
+from your `shiftwidth`, so droid does **not** force Kotlin's conventional 4. If
+Kotlin indents at the wrong width (e.g. 2 while typing), your `shiftwidth` is 2.
+Pin it per-project with an `.editorconfig` (read natively by Neovim, and by
+IntelliJ/Android Studio and ktlint):
+
+```ini
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+```
+
+or set it per-filetype in your own `after/ftplugin/kotlin.lua`
+(`vim.bo.shiftwidth = 4`, `vim.bo.softtabstop = 4`, `vim.bo.expandtab = true`).
+
 #### `:DroidKdoc`
 
 Generates a `/** … */` KDoc stub — with `@param` and `@return` tags — for the
