@@ -2,6 +2,7 @@
 
 local config = require "droid.config"
 local install = require "droid.lsp.shared.install"
+local sync = require "droid.lsp.kotlin.sync"
 
 local M = {}
 
@@ -282,9 +283,13 @@ function M.start(cfg)
             ["workspace/configuration"] = function(_, params, _)
                 return handle_workspace_configuration(kotlin_cfg, params.items)
             end,
+            ["intellij/importLog"] = function(_, params, _)
+                sync.on_import_log(kotlin_cfg, params)
+            end,
         },
     })
     vim.lsp.enable "kotlin_ls"
+    sync.setup_auto_reload(kotlin_cfg)
 
     -- Auto-enable inlay hints when kotlin_ls attaches
     local ih = kotlin_cfg.inlay_hints
