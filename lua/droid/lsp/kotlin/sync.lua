@@ -124,22 +124,54 @@ end
 -- Workspace reload
 ---------------------------------------------------------------------------
 
+-- Set once the server reports it has no handler for intellij/reloadWorkspace, so
+-- we stop retrying (and stop erroring) on every subsequent save this session.
+local reload_unsupported = false
+
 --- Send `intellij/reloadWorkspace`. Progress/failure streams back via importLog.
-function M.reload()
+--- Pass `{ silent = true }` (used by auto-reload) to suppress the "reloading"
+--- message so a build-file save does not spam the cmdline / trigger hit-enter.
+---@param opts? { silent?: boolean }
+function M.reload(opts)
+    opts = opts or {}
+    if reload_unsupported then
+        if not opts.silent then
+            vim.notify("droid.nvim: this kotlin-lsp build does not support workspace reload", vim.log.levels.WARN)
+        end
+        return
+    end
     local c = lsp_client.kotlin()
     if not c then
-        vim.notify("droid.nvim: kotlin_ls not attached — cannot reload workspace", vim.log.levels.WARN)
+        if not opts.silent then
+            vim.notify("droid.nvim: kotlin_ls not attached, cannot reload workspace", vim.log.levels.WARN)
+        end
         return
     end
     -- reloadWorkspace takes no params (reference RequestType0).
     c:request("intellij/reloadWorkspace", nil, function(err)
-        if err then
-            vim.schedule(function()
-                vim.notify("droid.nvim: workspace reload failed: " .. tostring(err), vim.log.levels.ERROR)
-            end)
+        if not err then
+            return
         end
+        vim.schedule(function()
+            local msg = (type(err) == "table" and err.message) or tostring(err)
+            -- Older kotlin-lsp builds have no handler for this request; degrade
+            -- gracefully instead of erroring on every save.
+            local unsupported = (type(err) == "table" and err.code == -32601)
+                or (msg and msg:find("no handler for request", 1, true) ~= nil)
+            if unsupported then
+                reload_unsupported = true
+                vim.notify(
+                    "droid.nvim: kotlin-lsp does not support workspace reload; auto-reload disabled for this session (update kotlin-lsp to enable it)",
+                    vim.log.levels.WARN
+                )
+            else
+                vim.notify("droid.nvim: workspace reload failed: " .. msg, vim.log.levels.ERROR)
+            end
+        end)
     end)
-    vim.notify("droid.nvim: reloading LSP workspace…", vim.log.levels.INFO)
+    if not opts.silent then
+        vim.notify("droid.nvim: reloading LSP workspace...", vim.log.levels.INFO)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -154,7 +186,7 @@ function M.setup_auto_reload(kotlin_cfg)
     vim.api.nvim_create_autocmd("BufWritePost", {
         group = grp,
         callback = function(ev)
-            if kotlin_cfg.auto_reload == false then
+            if kotlin_cfg.auto_reload == false or reload_unsupported then
                 return
             end
             if not M.is_build_file(ev.file) then
@@ -163,7 +195,8 @@ function M.setup_auto_reload(kotlin_cfg)
             if not lsp_client.kotlin() then
                 return
             end
-            M.reload()
+            -- Silent: no per-save "reloading" echo (avoids the hit-enter prompt).
+            M.reload { silent = true }
         end,
     })
 end
