@@ -71,10 +71,15 @@ function M.find_gradlew()
 end
 
 local function run_gradle_task(cwd, gradlew, task, args, callback)
+    local cmd_args = { gradlew, task }
+    if args and args ~= '' then
+        table.insert(cmd_args, args)
+    end
+
     -- List form so paths with separators/spaces are passed verbatim to the
     -- PTY rather than through a shell that may mis-parse them (notably the
     -- forward-slash gradlew.bat path on Windows cmd.exe).
-    local cmd = vim.iter({ gradlew, task, args or {} }):flatten():totable()
+    local cmd = vim.iter(cmd_args):flatten():totable()
 
     local buf, win = buffer.get_or_create("gradle", "horizontal")
 
