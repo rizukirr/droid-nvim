@@ -126,6 +126,9 @@ end
 
 -- Set once the server reports it has no handler for intellij/reloadWorkspace, so
 -- we stop retrying (and stop erroring) on every subsequent save this session.
+-- The released standalone kotlin-lsp (checked against 262.9593.0) has no such
+-- handler even though the reference VS Code client already sends the request,
+-- so this path is the norm, not a sign of an outdated install.
 local reload_unsupported = false
 
 --- Send `intellij/reloadWorkspace`. Progress/failure streams back via importLog.
@@ -136,7 +139,10 @@ function M.reload(opts)
     opts = opts or {}
     if reload_unsupported then
         if not opts.silent then
-            vim.notify("droid.nvim: this kotlin-lsp build does not support workspace reload", vim.log.levels.WARN)
+            vim.notify(
+                "droid.nvim: this kotlin-lsp build has no intellij/reloadWorkspace handler - use :DroidLspRestart to pick up build-file changes",
+                vim.log.levels.WARN
+            )
         end
         return
     end
@@ -154,14 +160,16 @@ function M.reload(opts)
         end
         vim.schedule(function()
             local msg = (type(err) == "table" and err.message) or tostring(err)
-            -- Older kotlin-lsp builds have no handler for this request; degrade
-            -- gracefully instead of erroring on every save.
+            -- The server has no handler for this request; degrade gracefully
+            -- instead of erroring on every save. 262.9593.0 answers -32803
+            -- (RequestFailed) rather than MethodNotFound, which a real reload
+            -- failure also uses, so only the message can tell them apart.
             local unsupported = (type(err) == "table" and err.code == -32601)
                 or (msg and msg:find("no handler for request", 1, true) ~= nil)
             if unsupported then
                 reload_unsupported = true
                 vim.notify(
-                    "droid.nvim: kotlin-lsp does not support workspace reload; auto-reload disabled for this session (update kotlin-lsp to enable it)",
+                    "droid.nvim: kotlin-lsp has no intellij/reloadWorkspace handler; auto-reload disabled for this session - use :DroidLspRestart after changing build files",
                     vim.log.levels.WARN
                 )
             else
