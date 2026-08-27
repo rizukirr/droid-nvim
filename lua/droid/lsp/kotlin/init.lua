@@ -177,14 +177,15 @@ end
 --- Build the initializationOptions table for kotlin_ls.
 --- The server uses `defaultSdk` (see reference client lspClient.ts); an earlier
 --- `defaultJdk` key was silently ignored.
+--- Returns an empty *dict*, not an empty table: `vim.json.encode {}` produces
+--- `[]`, and the server logs `"initializationOptions": []` for it.
 ---@param kotlin_cfg table
 ---@return table
 function M._init_options(kotlin_cfg)
-    local init_opts = {}
-    if kotlin_cfg.jdk_for_symbol_resolution then
-        init_opts.defaultSdk = kotlin_cfg.jdk_for_symbol_resolution
+    if not kotlin_cfg.jdk_for_symbol_resolution then
+        return vim.empty_dict()
     end
-    return init_opts
+    return { defaultSdk = kotlin_cfg.jdk_for_symbol_resolution }
 end
 
 --- Filetypes kotlin_ls attaches to. Java is opt-in: attaching keeps Kotlin's
