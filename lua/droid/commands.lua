@@ -137,6 +137,21 @@ function M.setup_commands()
         gradle.stop()
     end, {})
 
+    -- Jump to Gradle files. Modifiers open a split, e.g. :vert DroidGradleModule
+    local nav = require "droid.gradle_nav"
+    vim.api.nvim_create_user_command("DroidGradleModule", function(opts)
+        nav.module(opts.mods)
+    end, {})
+    vim.api.nvim_create_user_command("DroidGradleProject", function(opts)
+        nav.project(opts.mods)
+    end, {})
+    vim.api.nvim_create_user_command("DroidGradleSettings", function(opts)
+        nav.settings(opts.mods)
+    end, {})
+    vim.api.nvim_create_user_command("DroidGradleVersion", function(opts)
+        nav.version(opts.mods)
+    end, {})
+
     vim.api.nvim_create_user_command("DroidEmulator", function()
         android.launch_emulator()
     end, {})

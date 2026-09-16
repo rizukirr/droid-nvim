@@ -331,6 +331,12 @@ type name interpolated by the language server. Add your own via
 | `:DroidSync` | Sync dependencies |
 | `:DroidTask <task>` | Run any Gradle task |
 | `:DroidGradleStop` | Stop running Gradle task |
+| `:DroidGradleModule` | Open the current module's `build.gradle(.kts)` |
+| `:DroidGradleProject` | Open the root `build.gradle(.kts)` |
+| `:DroidGradleSettings` | Open `settings.gradle(.kts)` |
+| `:DroidGradleVersion` | Open `gradle/libs.versions.toml` |
+
+The jump commands accept modifiers to open a split, for example `:vert DroidGradleModule`.
 
 ### Device
 
