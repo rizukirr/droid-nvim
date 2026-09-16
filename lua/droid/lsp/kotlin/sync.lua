@@ -59,15 +59,16 @@ local function ensure_buf()
     return log_buf
 end
 
----@param line string
-local function append(line)
+---@param text string may span several lines
+local function append(text)
+    local lines = vim.split(text, "\r?\n")
     local b = ensure_buf()
     local count = vim.api.nvim_buf_line_count(b)
     -- Replace the initial single empty line on first write, else append.
     if count == 1 and vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] == "" then
-        vim.api.nvim_buf_set_lines(b, 0, 1, false, { line })
+        vim.api.nvim_buf_set_lines(b, 0, 1, false, lines)
     else
-        vim.api.nvim_buf_set_lines(b, -1, -1, false, { line })
+        vim.api.nvim_buf_set_lines(b, -1, -1, false, lines)
     end
     -- Trim the oldest lines once the buffer exceeds the cap.
     local total = vim.api.nvim_buf_line_count(b)
