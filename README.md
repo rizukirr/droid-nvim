@@ -397,6 +397,8 @@ These commands work in `.kt`, `.java`, and `.groovy` buffers with their respecti
 | `:DroidSymbols` | Document symbols (opens location list - navigate with `:lnext`, `:lprev`, `:lfirst`, `:llast`) |
 | `:DroidWorkspaceSymbols` | Workspace symbol search (opens location list - navigate with `:lnext`, `:lprev`) |
 | `:DroidReferences` | Find all references (opens quickfix list - navigate with `:cnext`, `:cprev`, `:cfirst`, `:clast`) |
+| `:DroidCallHierarchy [incoming\|outgoing]` | Calls to the symbol under the cursor, or calls it makes (default `incoming`) |
+| `:DroidTypeHierarchy [subtypes\|supertypes]` | Implementations of the type under the cursor, or its base types (default `subtypes`) |
 | `:DroidRename` | Rename symbol |
 | `:DroidCodeAction` | Show code actions |
 | `:DroidQuickFix` | Quick fix for diagnostics on current line |
