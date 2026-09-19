@@ -18,6 +18,7 @@ local defaults = {
     lsp = {
         enabled = true, -- Master toggle for all LSPs
         jre_path = nil, -- Shared JRE path (auto-detected from bundled/JAVA_HOME/system)
+        folding = true, -- Fold by the server's foldingRange instead of indentation
 
         -- Kotlin LSP (kotlin-lsp / kotlin-language-server)
         kotlin = {
