@@ -105,6 +105,8 @@ require("droid").setup({
             jvm_args = {},                 -- ignored by kotlin-lsp (uses bundled launcher)
             root_markers = nil,
             suppress_diagnostics = {},     -- e.g. { "PackageDirectoryMismatch" }
+            -- Hide a code only on declarations carrying one of the annotations
+            suppress_when_annotated = { FunctionName = { "Composable" } },
             inlay_hints = {
                 enabled = true,
                 parameters = true,
@@ -479,7 +481,7 @@ The LSP successfully detects the Gradle project structure but does not build a c
 - Organize imports (`:DroidImports`)
 
 **What may not work:**
-- Jetpack Compose or KMP is not supported yet
+- Jetpack Compose or KMP is not supported yet. kotlin-lsp reports every `@Composable` function as badly named, so droid hides `FunctionName` on annotated declarations by default (`suppress_when_annotated`)
 - Go-to-definition across files (e.g., jumping from MainActivity to MainViewModel in another file)
 - Find-references across the workspace
 - Workspace symbol search (`:DroidWorkspaceSymbols`)

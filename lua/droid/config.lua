@@ -28,6 +28,10 @@ local defaults = {
             import_progress = "progress", -- "progress" reports the import as LSP progress (fidget, lualine, vim.lsp.status); "off" is silent
             root_markers = nil, -- Override root detection
             suppress_diagnostics = {}, -- Diagnostic codes to hide, e.g. { "PackageDirectoryMismatch" }
+            -- Codes to hide only on declarations carrying one of the annotations.
+            -- kotlin-lsp has no Compose support, so it reports every @Composable
+            -- function as badly named; Android Studio and ktlint both exempt them.
+            suppress_when_annotated = { FunctionName = { "Composable" } },
             attach_to_java = false, -- Also attach kotlin_ls to Java buffers (fresh cross-language analysis; doubles providers with jdtls)
             auto_reload = true, -- Reload the LSP workspace when a build file (build.gradle, pom.xml, …) is saved
             inlay_hints = {
