@@ -229,7 +229,8 @@ return {
 ```lua
 lsp = {
   folding = true,          -- fold Kotlin, Java and Groovy buffers by the
-                           -- server's foldingRange instead of indentation
+                           -- server's foldingRange instead of indentation.
+                           -- Folds start open
   kotlin = {
     attach_to_java = false, -- attach kotlin_ls to Java buffers too (keeps Kotlin
                             -- cross-language analysis fresh; note: doubles LSP
