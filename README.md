@@ -228,6 +228,8 @@ return {
 
 ```lua
 lsp = {
+  folding = true,          -- fold Kotlin, Java and Groovy buffers by the
+                           -- server's foldingRange instead of indentation
   kotlin = {
     attach_to_java = false, -- attach kotlin_ls to Java buffers too (keeps Kotlin
                             -- cross-language analysis fresh; note: doubles LSP
@@ -393,7 +395,7 @@ These commands work in `.kt`, `.java`, and `.groovy` buffers with their respecti
 | Command | Description |
 | --- | --- |
 | `:DroidImports` | Organize imports (Kotlin & Java) |
-| `:DroidFormat` | Format buffer |
+| `:DroidFormat` | Format buffer, or the selected lines in visual mode |
 | `:DroidSymbols` | Document symbols (opens location list - navigate with `:lnext`, `:lprev`, `:lfirst`, `:llast`) |
 | `:DroidWorkspaceSymbols` | Workspace symbol search (opens location list - navigate with `:lnext`, `:lprev`) |
 | `:DroidReferences` | Find all references (opens quickfix list - navigate with `:cnext`, `:cprev`, `:cfirst`, `:clast`) |

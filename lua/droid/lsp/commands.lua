@@ -81,13 +81,29 @@ function M.setup()
     end, {})
 
     -- Format (uses built-in vim.lsp.buf.format)
-    cmd("DroidFormat", function()
+    -- Format the buffer, or just the lines a range covers
+    cmd("DroidFormat", function(opts)
         local c, name = need_client()
         if not c then
             return
         end
-        vim.lsp.buf.format { name = name }
-    end, {})
+        if opts.range == 0 then
+            vim.lsp.buf.format { name = name }
+            return
+        end
+        if not c:supports_method "textDocument/rangeFormatting" then
+            vim.notify(c.name .. " cannot format a range; formatting the buffer", vim.log.levels.WARN)
+            vim.lsp.buf.format { name = name }
+            return
+        end
+        vim.lsp.buf.format {
+            name = name,
+            range = {
+                start = { opts.line1, 0 },
+                ["end"] = { opts.line2, #(vim.fn.getline(opts.line2)) },
+            },
+        }
+    end, { range = true })
 
     -- Document Symbols
     cmd("DroidSymbols", function()
