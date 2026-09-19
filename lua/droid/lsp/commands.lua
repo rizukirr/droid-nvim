@@ -27,6 +27,20 @@ local function get_buffer_client()
     return c, c and c.name or nil
 end
 
+--- Completion for the hierarchy commands' single optional argument.
+---@param choices string[]
+---@return fun(arg_lead: string): string[]
+local function complete_from(choices)
+    return function(arg_lead)
+        return vim.tbl_filter(function(c)
+            return c:find(arg_lead, 1, true) == 1
+        end, choices)
+    end
+end
+
+local call_directions = complete_from { "incoming", "outgoing" }
+local type_kinds = complete_from { "subtypes", "supertypes" }
+
 local function need_client()
     local c, name = get_buffer_client()
     if not c then
@@ -98,6 +112,46 @@ function M.setup()
         end
         vim.lsp.buf.references()
     end, {})
+
+    -- Call Hierarchy: who calls this symbol, or what it calls
+    cmd("DroidCallHierarchy", function(opts)
+        local c = need_client()
+        if not c then
+            return
+        end
+        local direction = opts.fargs[1] or "incoming"
+        if direction ~= "incoming" and direction ~= "outgoing" then
+            vim.notify("Usage: :DroidCallHierarchy [incoming|outgoing]", vim.log.levels.WARN)
+            return
+        end
+        if not c:supports_method "textDocument/prepareCallHierarchy" then
+            vim.notify(c.name .. " has no call hierarchy support", vim.log.levels.WARN)
+            return
+        end
+        if direction == "incoming" then
+            vim.lsp.buf.incoming_calls()
+        else
+            vim.lsp.buf.outgoing_calls()
+        end
+    end, { nargs = "?", complete = call_directions })
+
+    -- Type Hierarchy: implementations below, or base types above
+    cmd("DroidTypeHierarchy", function(opts)
+        local c = need_client()
+        if not c then
+            return
+        end
+        local kind = opts.fargs[1] or "subtypes"
+        if kind ~= "subtypes" and kind ~= "supertypes" then
+            vim.notify("Usage: :DroidTypeHierarchy [subtypes|supertypes]", vim.log.levels.WARN)
+            return
+        end
+        if not c:supports_method "textDocument/prepareTypeHierarchy" then
+            vim.notify(c.name .. " has no type hierarchy support", vim.log.levels.WARN)
+            return
+        end
+        vim.lsp.buf.typehierarchy(kind)
+    end, { nargs = "?", complete = type_kinds })
 
     -- Rename
     cmd("DroidRename", function()
