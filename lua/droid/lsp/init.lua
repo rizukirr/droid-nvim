@@ -126,6 +126,11 @@ function M.setup()
     -- Setup Kotlin LSP commands (organize imports, format, etc.)
     require("droid.lsp.commands").setup()
 
+    -- Setup LSP-driven folding
+    if cfg.lsp.folding ~= false then
+        require("droid.lsp.folding").setup()
+    end
+
     -- Setup diagnostic interception
     require("droid.lsp.diagnostics").setup()
 end
