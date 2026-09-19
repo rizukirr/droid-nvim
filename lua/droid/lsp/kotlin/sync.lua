@@ -3,7 +3,6 @@
 --- and workspace reload (`intellij/reloadWorkspace`). A reload triggers an
 --- import, whose progress streams back through `on_import_log`.
 
-local progress = require "droid.progress"
 local lsp_client = require "droid.lsp.client"
 
 local M = {}
@@ -95,16 +94,50 @@ end
 -- importLog notification handler
 ---------------------------------------------------------------------------
 
+--- Token for the synthetic progress the import reports under. One import runs
+--- at a time, so one token is enough.
+local PROGRESS_TOKEN = "droid/kotlin-import"
+
+--- Whether the import already opened a progress sequence, so the next message
+--- reports rather than begins.
+local progress_open = false
+
+--- Feed one `$/progress` notification through Neovim's own handler, which
+--- pushes it into the client's progress ring and fires `LspProgress`. A
+--- progress UI (fidget, lualine, noice) renders it, and `vim.lsp.status()`
+--- picks it up. Nothing reaches the cmdline, so no message can force a
+--- hit-enter prompt during an import.
+---@param kind "begin"|"report"|"end"
+---@param message string
+local function report(kind, message)
+    local c = lsp_client.kotlin()
+    if not c then
+        return
+    end
+    local value = { kind = kind, message = message }
+    if kind == "begin" then
+        value.title = "Kotlin import"
+    end
+    local handler = vim.lsp.handlers["$/progress"]
+    if handler then
+        handler(nil, { token = PROGRESS_TOKEN, value = value }, { client_id = c.id })
+    end
+end
+
 --- Handle one `intellij/importLog` notification.
----@param _kotlin_cfg table unused today; reserved for future toggles
+---@param kotlin_cfg table
 ---@param params table { type:integer, message:string, failed?:boolean, succeeded?:boolean, tool?:string }
-function M.on_import_log(_kotlin_cfg, params)
+function M.on_import_log(kotlin_cfg, params)
     params = params or {}
     local msg = params.message or ""
     local line = params.tool and ("[" .. params.tool .. "] " .. msg) or msg
     local lines = append(line)
 
-    -- A message can carry many lines of Gradle output. The spinner shows one
+    if (kotlin_cfg or {}).import_progress == "off" then
+        return
+    end
+
+    -- A message can carry many lines of Gradle output. Progress shows one
     -- label, so use the last line with something in it.
     local label = line
     for i = #lines, 1, -1 do
@@ -115,23 +148,45 @@ function M.on_import_log(_kotlin_cfg, params)
     end
 
     if params.failed then
-        progress.stop_spinner()
-        vim.notify(
-            (params.tool or "Project") .. " import failed — run :DroidLspLog",
-            vim.log.levels.ERROR
-        )
+        report("end", (params.tool or "Project") .. " import failed, see :DroidLspLog")
+        progress_open = false
     elseif params.succeeded then
-        progress.stop_spinner()
-        vim.notify("Project import complete", vim.log.levels.INFO)
+        report("end", "Project import complete")
+        progress_open = false
+    elseif progress_open then
+        report("report", label)
     else
-        -- Non-terminal progress line: keep the spinner alive with the latest label
-        -- without restarting the timer on every message.
-        if progress.spinner_timer then
-            progress.current_message = label
-        else
-            progress.start_spinner(label)
-        end
+        report("begin", label)
+        progress_open = true
     end
+end
+
+--- Handle one `window/showMessage`. The full text goes to the log buffer, and
+--- the user gets its first line.
+---@param params table { type:integer, message:string }
+function M.on_show_message(params)
+    params = params or {}
+    local message = params.message or ""
+    if message == "" then
+        return
+    end
+    append("[server] " .. message)
+
+    -- One line that fits the cmdline: a wrapped notification is what forces the
+    -- hit-enter prompt this handler exists to avoid.
+    local first = vim.split(message, "\r?\n")[1] or message
+    local prefix = "kotlin_ls: "
+    local suffix = " (see :DroidLspLog)"
+    local elided = first ~= message
+    local budget = math.max(20, vim.o.columns - #prefix - #suffix - 2)
+    if vim.fn.strdisplaywidth(first) > budget then
+        first = vim.fn.strcharpart(first, 0, budget - 1) .. "…"
+        elided = true
+    end
+    local level = params.type == 1 and vim.log.levels.ERROR
+        or params.type == 2 and vim.log.levels.WARN
+        or vim.log.levels.INFO
+    vim.notify(prefix .. first .. (elided and suffix or ""), level)
 end
 
 ---------------------------------------------------------------------------

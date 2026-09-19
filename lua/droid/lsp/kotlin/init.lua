@@ -287,6 +287,12 @@ function M.start(cfg)
             ["intellij/importLog"] = function(_, params, _)
                 sync.on_import_log(kotlin_cfg, params)
             end,
+            -- kotlin-lsp reports unresolved dependencies as one message listing
+            -- every jar, which overflows the cmdline and forces a hit-enter
+            -- prompt. Keep the detail in the log buffer and say one line.
+            ["window/showMessage"] = function(_, params, _)
+                sync.on_show_message(params)
+            end,
         },
     })
     vim.lsp.enable "kotlin_ls"

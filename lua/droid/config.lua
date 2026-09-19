@@ -25,6 +25,7 @@ local defaults = {
             enabled = true,
             jdk_for_symbol_resolution = nil, -- JDK path for kotlin-lsp symbol resolution
             jvm_args = {}, -- Ignored by the native kotlin-lsp launcher; edit bin/intellij-server.vmoptions instead
+            import_progress = "progress", -- "progress" reports the import as LSP progress (fidget, lualine, vim.lsp.status); "off" is silent
             root_markers = nil, -- Override root detection
             suppress_diagnostics = {}, -- Diagnostic codes to hide, e.g. { "PackageDirectoryMismatch" }
             attach_to_java = false, -- Also attach kotlin_ls to Java buffers (fresh cross-language analysis; doubles providers with jdtls)
