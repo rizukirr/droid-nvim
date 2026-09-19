@@ -169,6 +169,31 @@ function M.setup()
         vim.lsp.buf.typehierarchy(kind)
     end, { nargs = "?", complete = type_kinds })
 
+    -- Rename the current file, fixing the class name and every import of it
+    cmd("DroidRenameFile", function(opts)
+        local c = need_client()
+        if not c then
+            return
+        end
+        local old = vim.api.nvim_buf_get_name(0)
+        if old == "" then
+            vim.notify("Buffer has no file to rename", vim.log.levels.WARN)
+            return
+        end
+        local new = opts.args
+        if new == "" then
+            new = vim.fn.input { prompt = "Rename to: ", default = old, completion = "file" }
+            if new == "" or new == old then
+                return
+            end
+        end
+        -- A bare name means the same directory, matching :saveas.
+        if not new:find "/" then
+            new = vim.fs.joinpath(vim.fs.dirname(old), new)
+        end
+        require("droid.lsp.file_ops").rename(old, new)
+    end, { nargs = "?", complete = "file" })
+
     -- Rename
     cmd("DroidRename", function()
         if not need_client() then

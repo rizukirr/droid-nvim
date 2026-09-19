@@ -247,6 +247,20 @@ Auto-reload and `:DroidLspRefresh` need a server that answers `intellij/reloadWo
 This is the language-server project *sync* (like Android Studio's "Sync Project
 with Gradle Files"), not the `:DroidBuild` APK build.
 
+#### File renames
+
+`:DroidRenameFile` asks the server what a rename changes, applies those edits, moves the file, then saves what it touched. Renaming `PrayerRepository.kt` to `PrayerStore.kt` renames the class and fixes the imports in every file that names it.
+
+Renaming inside a file manager works too when that plugin speaks the LSP file operations. [oil.nvim](https://github.com/stevearc/oil.nvim) does through its `lsp_file_methods`, on by default. Its `autosave_changes` default leaves the edited files unsaved, so consider:
+
+```lua
+require("oil").setup {
+  lsp_file_methods = { autosave_changes = "unmodified" },
+}
+```
+
+For nvim-tree or neo-tree, [nvim-lsp-file-operations](https://github.com/antosha417/nvim-lsp-file-operations) fills the same role.
+
 #### Decompilation
 
 Navigating to a class from a dependency (e.g., go-to-definition on a library symbol) automatically decompiles the `.class` file via `jar://` and `jrt://` protocol handlers. Works with both Kotlin and Java LSPs.
@@ -402,6 +416,7 @@ These commands work in `.kt`, `.java`, and `.groovy` buffers with their respecti
 | `:DroidCallHierarchy [incoming\|outgoing]` | Calls to the symbol under the cursor, or calls it makes (default `incoming`) |
 | `:DroidTypeHierarchy [subtypes\|supertypes]` | Implementations of the type under the cursor, or its base types (default `subtypes`) |
 | `:DroidRename` | Rename symbol |
+| `:DroidRenameFile [path]` | Rename the current file, updating its class name and every import of it (prompts when no path is given) |
 | `:DroidCodeAction` | Show code actions |
 | `:DroidQuickFix` | Quick fix for diagnostics on current line |
 | `:DroidInlayHintsToggle` | Toggle inlay hints for current buffer |
