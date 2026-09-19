@@ -59,7 +59,9 @@ local function ensure_buf()
     return log_buf
 end
 
+--- Write `text` to the log buffer, one buffer line per line of text.
 ---@param text string may span several lines
+---@return string[] lines the lines as written
 local function append(text)
     local lines = vim.split(text, "\r?\n")
     local b = ensure_buf()
@@ -75,6 +77,7 @@ local function append(text)
     if total > MAX_LOG_LINES then
         vim.api.nvim_buf_set_lines(b, 0, total - MAX_LOG_LINES, false, {})
     end
+    return lines
 end
 
 --- Open (creating if needed) and focus the import-log buffer.
@@ -99,7 +102,17 @@ function M.on_import_log(_kotlin_cfg, params)
     params = params or {}
     local msg = params.message or ""
     local line = params.tool and ("[" .. params.tool .. "] " .. msg) or msg
-    append(line)
+    local lines = append(line)
+
+    -- A message can carry many lines of Gradle output. The spinner shows one
+    -- label, so use the last line with something in it.
+    local label = line
+    for i = #lines, 1, -1 do
+        if vim.trim(lines[i]) ~= "" then
+            label = lines[i]
+            break
+        end
+    end
 
     if params.failed then
         progress.stop_spinner()
@@ -114,9 +127,9 @@ function M.on_import_log(_kotlin_cfg, params)
         -- Non-terminal progress line: keep the spinner alive with the latest label
         -- without restarting the timer on every message.
         if progress.spinner_timer then
-            progress.current_message = line
+            progress.current_message = label
         else
-            progress.start_spinner(line)
+            progress.start_spinner(label)
         end
     end
 end
