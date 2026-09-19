@@ -243,7 +243,9 @@ lsp = {
 Auto-reload and `:DroidLspRefresh` need a server that answers `intellij/reloadWorkspace`, verified on kotlin-lsp 263.4702.0. On an older build droid warns once, then falls back to `:DroidLspRestart`.
 
 - `:DroidLspRefresh` — manually re-import the project model (Gradle/Maven sync).
-- `:DroidLspLog` — open the project-sync log; import failures are also toasted.
+- `:DroidLspLog` — open the project-sync log; it also holds the full text of any message the server shows.
+
+Import progress is reported as LSP progress, so [fidget.nvim](https://github.com/j-hui/fidget.nvim), lualine's `lsp_status` component or `vim.lsp.status()` render it. Without one of those the import is silent, and `:DroidLspLog` has the detail. Set `lsp.kotlin.import_progress = "off"` to stop reporting it at all.
 
 This is the language-server project *sync* (like Android Studio's "Sync Project
 with Gradle Files"), not the `:DroidBuild` APK build.
