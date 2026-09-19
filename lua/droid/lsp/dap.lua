@@ -21,8 +21,13 @@ local function exec(client, command, args, cb)
     end)
 end
 
---- nvim-dap enrich_config hook: resolve classpath / java executable / class URI
---- lazily via the LSP, mirroring dap.ts resolveLaunchConfig.
+--- nvim-dap enrich_config hook: resolve the launch through the LSP, mirroring
+--- dap.ts resolveJvmLaunchConfig.
+---
+--- The server composes the whole launch in one read action, and answers with
+--- this config's own values already merged in, so every field is copied rather
+--- than combined here. `vmArgs` is the one that matters: a module at a preview
+--- language level needs `--enable-preview` or the JVM refuses its classes.
 ---@param client vim.lsp.Client
 local function make_enrich_config(client)
     return function(config, on_config)
@@ -30,24 +35,52 @@ local function make_enrich_config(client)
             vim.notify("intellij_debugger: launch config needs 'mainClass'", vim.log.levels.ERROR)
             return on_config(config)
         end
+
+        local function resolve(uri)
+            exec(client, "intellij.java.resolveLaunch", {
+                {
+                    uri = uri,
+                    cwd = config.cwd,
+                    overrides = {
+                        classPaths = config.classPaths,
+                        modulePaths = config.modulePaths,
+                        moduleName = config.moduleName,
+                        javaExec = config.javaExec,
+                        vmArgs = config.vmArgs,
+                    },
+                },
+            }, function(err, paths)
+                if err or type(paths) ~= "table" then
+                    local detail = err and (": " .. tostring(err)) or ""
+                    vim.notify("intellij_debugger: could not resolve the launch" .. detail, vim.log.levels.ERROR)
+                    return on_config(config)
+                end
+                config.classPaths = paths.classpath or {}
+                config.modulePaths = paths.modulePath or {}
+                if paths.moduleName then
+                    config.moduleName = paths.moduleName
+                end
+                config.moduleContentPaths = paths.moduleContentPaths or {}
+                if paths.workingDirectory then
+                    config.cwd = paths.workingDirectory
+                end
+                config.javaExec = paths.javaExec
+                config.vmArgs = paths.vmArgs or config.vmArgs
+                on_config(config)
+            end)
+        end
+
+        if config.file then
+            return resolve(vim.uri_from_fname(config.file))
+        end
         exec(client, "intellij.java.resolveClassDocument", { { fqn = config.mainClass } }, function(e1, doc)
-            local uri = config.file and vim.uri_from_fname(config.file) or (type(doc) == "table" and doc.uri)
+            local uri = type(doc) == "table" and doc.uri
             if not uri then
                 local detail = e1 and (": " .. tostring(e1)) or ""
                 vim.notify("intellij_debugger: could not resolve class document" .. detail, vim.log.levels.ERROR)
                 return on_config(config)
             end
-            exec(client, "intellij.java.resolveClasspath", { { uri = uri } }, function(_, cp)
-                if type(cp) == "table" and cp.classpath and (not config.classPaths or #config.classPaths == 0) then
-                    config.classPaths = cp.classpath
-                end
-                exec(client, "intellij.java.resolveJavaExecutable", { { uri = uri } }, function(_, je)
-                    if type(je) == "table" and je.javaExec and not config.javaExec then
-                        config.javaExec = je.javaExec
-                    end
-                    on_config(config)
-                end)
-            end)
+            resolve(uri)
         end)
     end
 end
