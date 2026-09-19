@@ -237,6 +237,8 @@ lsp = {
 }
 ```
 
+Auto-reload and `:DroidLspRefresh` need a server that answers `intellij/reloadWorkspace`, verified on kotlin-lsp 263.4702.0. On an older build droid warns once, then falls back to `:DroidLspRestart`.
+
 - `:DroidLspRefresh` — manually re-import the project model (Gradle/Maven sync).
 - `:DroidLspLog` — open the project-sync log; import failures are also toasted.
 

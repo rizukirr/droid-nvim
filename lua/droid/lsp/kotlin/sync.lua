@@ -140,9 +140,8 @@ end
 
 -- Set once the server reports it has no handler for intellij/reloadWorkspace, so
 -- we stop retrying (and stop erroring) on every subsequent save this session.
--- The released standalone kotlin-lsp (checked against 262.9593.0) has no such
--- handler even though the reference VS Code client already sends the request,
--- so this path is the norm, not a sign of an outdated install.
+-- kotlin-lsp 263.4702.0 answers the request and re-imports the project. Builds
+-- before that refuse it, which is what this latch is for.
 local reload_unsupported = false
 
 --- Send `intellij/reloadWorkspace`. Progress/failure streams back via importLog.
@@ -154,7 +153,7 @@ function M.reload(opts)
     if reload_unsupported then
         if not opts.silent then
             vim.notify(
-                "droid.nvim: this kotlin-lsp build has no intellij/reloadWorkspace handler - use :DroidLspRestart to pick up build-file changes",
+                "droid.nvim: this kotlin-lsp build refuses intellij/reloadWorkspace; update to 263.4702.0 or newer, or use :DroidLspRestart to pick up build-file changes",
                 vim.log.levels.WARN
             )
         end
@@ -167,23 +166,26 @@ function M.reload(opts)
         end
         return
     end
-    -- reloadWorkspace takes no params (reference RequestType0).
-    c:request("intellij/reloadWorkspace", nil, function(err)
+    -- The server re-applies the initializationOptions carried by the request, so
+    -- a reload picks up config changes without a restart (reference lspClient.ts).
+    local kotlin_cfg = require("droid.config").get().lsp.kotlin or {}
+    local params = { initializationOptions = require("droid.lsp.kotlin")._init_options(kotlin_cfg) }
+    c:request("intellij/reloadWorkspace", params, function(err)
         if not err then
             return
         end
         vim.schedule(function()
             local msg = (type(err) == "table" and err.message) or tostring(err)
-            -- The server has no handler for this request; degrade gracefully
-            -- instead of erroring on every save. 262.9593.0 answers -32803
-            -- (RequestFailed) rather than MethodNotFound, which a real reload
-            -- failure also uses, so only the message can tell them apart.
+            -- A build without the handler degrades gracefully instead of erroring
+            -- on every save. 262.9593.0 answers -32803 (RequestFailed) rather than
+            -- MethodNotFound, which a real reload failure also uses, so only the
+            -- message can tell them apart.
             local unsupported = (type(err) == "table" and err.code == -32601)
                 or (msg and msg:find("no handler for request", 1, true) ~= nil)
             if unsupported then
                 reload_unsupported = true
                 vim.notify(
-                    "droid.nvim: kotlin-lsp has no intellij/reloadWorkspace handler; auto-reload disabled for this session - use :DroidLspRestart after changing build files",
+                    "droid.nvim: this kotlin-lsp build refuses intellij/reloadWorkspace; auto-reload disabled for this session. Update to 263.4702.0 or newer, or use :DroidLspRestart after changing build files",
                     vim.log.levels.WARN
                 )
             else
