@@ -1,32 +1,76 @@
 --- LSP-driven folds for droid.nvim buffers.
 --- kotlin-lsp, jdtls and groovy-language-server all answer
 --- `textDocument/foldingRange`, so folds follow the syntax tree instead of
---- indentation. Opt out with `lsp.folding = false`.
+--- indentation. Folds start open: the structure is there to fold when you ask
+--- for it, not something the plugin applies to a file you just opened.
+--- Opt out with `lsp.folding = false`.
 
 local M = {}
 
 --- Buffers whose fold options droid changed, with their previous values, so a
 --- detaching client can put them back.
----@type table<integer, { foldmethod: string, foldexpr: string }>
+---@type table<integer, table<string, any>>
 local saved = {}
+
+local OPTIONS = { "foldmethod", "foldexpr", "foldtext", "foldlevel" }
+
+---@param bufnr integer
+---@return integer[] windows showing this buffer
+local function windows_for(bufnr)
+    local wins = {}
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_get_buf(win) == bufnr then
+            wins[#wins + 1] = win
+        end
+    end
+    return wins
+end
+
+--- Fold text in the shape of the code: the opening line with its body elided.
+--- `fun getOnboarding() {` becomes `fun getOnboarding() {...}`.
+---@return string
+function M.foldtext()
+    local first = vim.fn.getline(vim.v.foldstart)
+    local lines = vim.v.foldend - vim.v.foldstart + 1
+    local text = vim.trim(first)
+    -- An opening bracket gets its closing partner back, so the fold reads as a
+    -- whole construct rather than a cut-off line.
+    local bracket = text:match "([%[{%(])%s*$"
+    if bracket then
+        local closing = ({ ["{"] = "}", ["["] = "]", ["("] = ")" })[bracket]
+        text = text .. "..." .. closing
+    else
+        text = text .. "..."
+    end
+    local indent = first:match "^%s*" or ""
+    return ("%s%s  %d lines"):format(indent, text, lines)
+end
 
 ---@param bufnr integer
 local function enable(bufnr)
     if saved[bufnr] then
         return
     end
-    local win = vim.api.nvim_get_current_win()
-    if vim.api.nvim_win_get_buf(win) ~= bufnr then
+    local wins = windows_for(bufnr)
+    if #wins == 0 then
         return
     end
     -- `vim.wo[win][0]` scopes the window option to this buffer, so another
     -- buffer in the same window keeps its own folding.
-    saved[bufnr] = {
-        foldmethod = vim.wo[win][0].foldmethod,
-        foldexpr = vim.wo[win][0].foldexpr,
-    }
-    vim.wo[win][0].foldmethod = "expr"
-    vim.wo[win][0].foldexpr = "v:lua.vim.lsp.foldexpr()"
+    local win = wins[1]
+    local prev = {}
+    for _, opt in ipairs(OPTIONS) do
+        prev[opt] = vim.wo[win][0][opt]
+    end
+    saved[bufnr] = prev
+
+    for _, w in ipairs(wins) do
+        vim.wo[w][0].foldmethod = "expr"
+        vim.wo[w][0].foldexpr = "v:lua.vim.lsp.foldexpr()"
+        vim.wo[w][0].foldtext = "v:lua.require'droid.lsp.folding'.foldtext()"
+        -- Everything open. `zc`, `zM` and friends still work.
+        vim.wo[w][0].foldlevel = 99
+    end
 end
 
 ---@param bufnr integer
@@ -36,10 +80,9 @@ local function restore(bufnr)
         return
     end
     saved[bufnr] = nil
-    for _, win in ipairs(vim.api.nvim_list_wins()) do
-        if vim.api.nvim_win_get_buf(win) == bufnr then
-            vim.wo[win][0].foldmethod = prev.foldmethod
-            vim.wo[win][0].foldexpr = prev.foldexpr
+    for _, win in ipairs(windows_for(bufnr)) do
+        for _, opt in ipairs(OPTIONS) do
+            vim.wo[win][0][opt] = prev[opt]
         end
     end
 end
