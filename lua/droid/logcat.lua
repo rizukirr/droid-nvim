@@ -166,6 +166,17 @@ function M.start(adb, device_id, mode, override_filters)
     local cfg = config.get()
     local active_filters = merged_filters(override_filters)
 
+    if active_filters.grep_pattern then
+        -- Matching the pattern against itself forces the parser through any
+        -- literal characters it has, which is enough to surface a syntax
+        -- error like an unbalanced capture or bracket.
+        local pattern_ok = pcall(string.match, active_filters.grep_pattern, active_filters.grep_pattern)
+        if not pattern_ok then
+            vim.notify("Invalid grep pattern: " .. active_filters.grep_pattern, vim.log.levels.ERROR)
+            return
+        end
+    end
+
     -- Enhanced reuse logic with ownership checking
     local buf_info = buffer.get_buffer_info()
     -- The panel is shared with Gradle: never kill a running task to show logs.
