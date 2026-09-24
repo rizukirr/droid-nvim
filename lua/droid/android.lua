@@ -37,8 +37,7 @@ local _cached_application_id_root = nil
 
 -- Find the project's applicationId. Searches every build.gradle{,.kts} under
 -- the project root, preferring modules that apply `com.android.application`.
--- Result is cached per project root; call M.clear_application_id_cache() to
--- invalidate after editing build files.
+-- Result is cached per project root.
 function M.find_application_id()
     local root = find_project_root() or vim.fn.getcwd()
 
@@ -73,11 +72,6 @@ function M.find_application_id()
     _cached_application_id = fallback
     _cached_application_id_root = root
     return fallback
-end
-
-function M.clear_application_id_cache()
-    _cached_application_id = nil
-    _cached_application_id_root = nil
 end
 
 -- Find main activity using adb cmd (inspired by reference code)
@@ -301,40 +295,6 @@ function M.get_running_devices(adb, callback)
             end
         end
         callback(devices)
-    end)
-end
-
-function M.wait_for_device_id(adb, callback)
-    local cfg = config.get()
-
-    local timer = vim.loop.new_timer()
-    if timer == nil then
-        return
-    end
-
-    local start_time = vim.loop.now()
-
-    progress.update_spinner_message "Waiting for device to come online"
-
-    timer:start(0, 2000, function()
-        if vim.loop.now() - start_time > cfg.android.device_wait_timeout_ms then
-            timer:stop()
-            timer:close()
-            vim.schedule(function()
-                progress.stop_spinner()
-                vim.notify("Timed out waiting for device", vim.log.levels.ERROR)
-                callback(nil)
-            end)
-            return
-        end
-        M.get_running_devices(adb, function(devices)
-            if #devices > 0 then
-                timer:stop()
-                timer:close()
-                progress.update_spinner_message "Device ready"
-                callback(devices[1].id)
-            end
-        end)
     end)
 end
 
@@ -840,6 +800,33 @@ function M.stop_emulator()
     end)
 end
 
+--- Pick a running device, auto-selecting the only one when the config allows.
+---@param adb string
+---@param prompt string
+---@param on_pick fun(device_id: string)
+function M.pick_running_device(adb, prompt, on_pick)
+    M.get_running_devices(adb, function(devices)
+        if #devices == 0 then
+            vim.notify("No devices available", vim.log.levels.ERROR)
+            return
+        end
+        if #devices == 1 and config.get().android.auto_select_single_target then
+            on_pick(devices[1].id)
+            return
+        end
+        vim.ui.select(devices, {
+            prompt = prompt,
+            format_item = function(d)
+                return d.name .. " (" .. d.id .. ")"
+            end,
+        }, function(choice)
+            if choice then
+                on_pick(choice.id)
+            end
+        end)
+    end)
+end
+
 -- ADB quick actions helper: resolve device + package, then run command
 local function run_adb_on_device(args_fn, success_msg, error_msg)
     local adb = M.get_adb_path()
@@ -853,40 +840,17 @@ local function run_adb_on_device(args_fn, success_msg, error_msg)
         return
     end
 
-    M.get_running_devices(adb, function(devices)
-        if #devices == 0 then
-            vim.notify("No devices available", vim.log.levels.ERROR)
-            return
-        end
-
-        local function execute(device_id)
-            local args = args_fn(adb, device_id, package)
-            vim.system(args, {}, function(obj)
-                vim.schedule(function()
-                    if obj.code == 0 then
-                        vim.notify(success_msg .. ": " .. package, vim.log.levels.INFO)
-                    else
-                        vim.notify(error_msg .. ": " .. (obj.stderr or "unknown error"), vim.log.levels.ERROR)
-                    end
-                end)
-            end)
-        end
-
-        local cfg = config.get()
-        if #devices == 1 and cfg.android.auto_select_single_target then
-            execute(devices[1].id)
-        else
-            vim.ui.select(devices, {
-                prompt = "Select device:",
-                format_item = function(d)
-                    return d.name .. " (" .. d.id .. ")"
-                end,
-            }, function(choice)
-                if choice then
-                    execute(choice.id)
+    M.pick_running_device(adb, "Select device:", function(device_id)
+        local args = args_fn(adb, device_id, package)
+        vim.system(args, {}, function(obj)
+            vim.schedule(function()
+                if obj.code == 0 then
+                    vim.notify(success_msg .. ": " .. package, vim.log.levels.INFO)
+                else
+                    vim.notify(error_msg .. ": " .. (obj.stderr or "unknown error"), vim.log.levels.ERROR)
                 end
             end)
-        end
+        end)
     end)
 end
 
@@ -919,38 +883,15 @@ function M.mirror()
         return
     end
 
-    M.get_running_devices(adb, function(devices)
-        if #devices == 0 then
-            vim.notify("No devices available", vim.log.levels.ERROR)
-            return
-        end
-
-        local function launch(device_id)
-            vim.notify("Starting scrcpy for " .. device_id, vim.log.levels.INFO)
-            vim.fn.jobstart({ "scrcpy", "-s", device_id }, {
-                on_exit = vim.schedule_wrap(function(_, exit_code)
-                    if exit_code ~= 0 then
-                        vim.notify("scrcpy exited with code " .. exit_code, vim.log.levels.WARN)
-                    end
-                end),
-            })
-        end
-
-        local cfg = config.get()
-        if #devices == 1 and cfg.android.auto_select_single_target then
-            launch(devices[1].id)
-        else
-            vim.ui.select(devices, {
-                prompt = "Select device to mirror:",
-                format_item = function(d)
-                    return d.name .. " (" .. d.id .. ")"
-                end,
-            }, function(choice)
-                if choice then
-                    launch(choice.id)
+    M.pick_running_device(adb, "Select device to mirror:", function(device_id)
+        vim.notify("Starting scrcpy for " .. device_id, vim.log.levels.INFO)
+        vim.fn.jobstart({ "scrcpy", "-s", device_id }, {
+            on_exit = vim.schedule_wrap(function(_, exit_code)
+                if exit_code ~= 0 then
+                    vim.notify("scrcpy exited with code " .. exit_code, vim.log.levels.WARN)
                 end
-            end)
-        end
+            end),
+        })
     end)
 end
 
