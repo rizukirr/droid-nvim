@@ -48,7 +48,10 @@ local function apply_will_rename(old_path, new_path)
                 vim.list_extend(touched, edited_uris(res.result))
             elseif res and res.err then
                 vim.notify(
-                    ("droid.nvim: %s could not prepare the rename: %s"):format(c.name, tostring(res.err.message or res.err)),
+                    ("droid.nvim: %s could not prepare the rename: %s"):format(
+                        c.name,
+                        tostring(res.err.message or res.err)
+                    ),
                     vim.log.levels.WARN
                 )
             end
@@ -71,14 +74,33 @@ local function notify_did_rename(old_path, new_path)
     end
 end
 
+--- Every loaded buffer that was already modified, so save_edited can leave
+--- those alone.
+---@return table<number, true>
+local function loaded_modified_buffers()
+    local modified = {}
+    for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].modified then
+            modified[bufnr] = true
+        end
+    end
+    return modified
+end
+
 --- Write the buffers the edits changed, leaving alone any that were already
 --- modified before the rename.
 ---@param uris string[]
-local function save_edited(uris)
+---@param pre_modified table<number, true> buffers modified before the rename edits were applied
+local function save_edited(uris, pre_modified)
     local seen = {}
     for _, uri in ipairs(uris) do
         local bufnr = vim.uri_to_bufnr(uri)
-        if not seen[bufnr] and vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].modified then
+        if
+            not seen[bufnr]
+            and not pre_modified[bufnr]
+            and vim.api.nvim_buf_is_loaded(bufnr)
+            and vim.bo[bufnr].modified
+        then
             seen[bufnr] = true
             vim.api.nvim_buf_call(bufnr, function()
                 vim.cmd.update { mods = { emsg_silent = true, noautocmd = true } }
@@ -101,6 +123,11 @@ function M.rename(old_path, new_path, opts)
         return
     end
 
+    -- Snapshot before the edits are applied: applying them can itself mark a
+    -- previously-clean buffer modified, so this is the only point that tells
+    -- an edit already pending from the rename's own edit.
+    local pre_modified = loaded_modified_buffers()
+
     -- The spec orders the edits before the move: they describe the code as it
     -- is now, and applying them after would race the server's own file watch.
     local touched = apply_will_rename(old_path, new_path)
@@ -108,7 +135,7 @@ function M.rename(old_path, new_path, opts)
     notify_did_rename(old_path, new_path)
 
     if opts.save ~= false then
-        save_edited(touched)
+        save_edited(touched, pre_modified)
     end
     vim.notify(
         ("droid.nvim: renamed to %s (%d file(s) updated)"):format(vim.fn.fnamemodify(new_path, ":t"), #touched),
