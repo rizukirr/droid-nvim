@@ -97,8 +97,8 @@ function M.setup_commands()
         local filters = {}
 
         for _, arg in ipairs(opts.fargs) do
-            local key, value = arg:match "([^=]+)=([^=]+)"
-            if key and value then
+            local key, value = arg:match "^([^=]+)=(.*)$"
+            if key and value ~= "" then
                 filters[key] = value
             end
         end
