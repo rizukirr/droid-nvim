@@ -24,7 +24,7 @@ local function extract_application_id(content)
         -- skip comments
         if not line:match "^%s*//" and line:find "applicationId" then
             local app_id = line:match "applicationId%s*=?%s*[\"']([^\"']+)[\"']"
-            if app_id then
+            if app_id and app_id:match "^[%a_][%w_]*%.[%w_.]*[%w_]$" then
                 return app_id
             end
         end
