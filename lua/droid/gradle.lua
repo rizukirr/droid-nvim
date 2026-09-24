@@ -6,23 +6,29 @@ local M = {}
 M.selected_variant = "Debug"
 
 --- Locate APKs produced by `assemble<Variant>` under the standard AGP
---- output layout. Handles both:
+--- output layout. Handles all of:
 ---   - default builds: */build/outputs/apk/<variantLower>/*.apk
----   - flavored builds: */build/outputs/apk/<flavor><Variant>/*.apk
+---   - flavored builds, single directory: */build/outputs/apk/<flavor><Variant>/*.apk
 ---     (e.g. freeDebug, paidRelease)
---- An APK is considered a match when its parent directory name either
---- equals variant:lower() or ends with the variant in its camelCase form.
+---   - flavored builds, nested directories: */build/outputs/apk/<flavor>/<variantLower>/*.apk
+---     (e.g. free/debug, paid/release)
+--- An APK is considered a match when the lowercased path segments between
+--- `apk/` and the file, joined together, either equal variant:lower() or
+--- end with it.
 ---@param cwd string project root
 ---@param variant string e.g. "Debug" or "Release"
 ---@return string[] absolute APK paths
 function M.find_apks_for_variant(cwd, variant)
     local lower = variant:lower()
-    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "*", "*.apk")
+    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "**", "*.apk")
     local matches = {}
     for _, apk in ipairs(vim.fn.glob(pattern, false, true)) do
-        local dir = vim.fs.basename(vim.fs.dirname(apk))
-        if dir == lower or (dir:sub(-#variant) == variant and #dir > #variant) then
-            table.insert(matches, apk)
+        local rel = apk:match("/apk/(.+)/[^/]+$")
+        if rel then
+            local dir = rel:gsub("/", ""):lower()
+            if dir == lower or (dir:sub(-#lower) == lower and #dir > #lower) then
+                table.insert(matches, apk)
+            end
         end
     end
     return matches
