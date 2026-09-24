@@ -121,7 +121,7 @@ function M.apply_filters(user_filters, adb, device_id)
     end
 
     -- If logcat is already running, apply filters to current session
-    if M.job_id and M.current_adb and M.current_device_id then
+    if M.is_running() and M.current_adb and M.current_device_id then
         -- Calculate what the new filters would be (same logic as in M.start)
         local cfg = config.get()
         local base_filters = cfg.logcat.filters or {}
