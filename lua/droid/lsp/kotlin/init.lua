@@ -270,7 +270,16 @@ function M.start(cfg)
     vim.lsp.config("kotlin_ls", {
         cmd = cmd,
         filetypes = { "kotlin" },
-        root_markers = root_markers,
+        -- Neovim attaches an enabled config to every later buffer of its
+        -- filetype, so per-buffer droid_lsp_disabled must be enforced here:
+        -- root_dir returning without calling on_dir keeps the client off
+        -- that buffer.
+        root_dir = function(bufnr, on_dir)
+            if vim.b[bufnr].droid_lsp_disabled then
+                return
+            end
+            on_dir(vim.fs.root(bufnr, root_markers))
+        end,
         settings = settings,
         init_options = init_opts,
         capabilities = {
@@ -367,7 +376,6 @@ function M.setup(cfg)
     vim.api.nvim_create_autocmd("FileType", {
         group = vim.api.nvim_create_augroup("DroidKotlinLsp", { clear = true }),
         pattern = "kotlin",
-        once = true,
         callback = function()
             M.start(cfg)
         end,

@@ -92,13 +92,23 @@ function M.setup()
     if not vim.lsp.foldexpr then
         return
     end
+    local droid_lsp_names = require("droid.lsp.client").LSP_NAMES
     local group = vim.api.nvim_create_augroup("DroidFolding", { clear = true })
+
+    --- Whether `name` is an LSP droid.nvim manages. Folding only follows those:
+    --- any other attached client (lua_ls, jdtls, ...) keeps the buffer's
+    --- existing fold settings even when it also answers foldingRange.
+    ---@param name string
+    ---@return boolean
+    local function is_droid_lsp(name)
+        return name == droid_lsp_names.kotlin or name == droid_lsp_names.groovy
+    end
 
     vim.api.nvim_create_autocmd("LspAttach", {
         group = group,
         callback = function(ev)
             local c = vim.lsp.get_client_by_id(ev.data.client_id)
-            if c and c:supports_method "textDocument/foldingRange" then
+            if c and is_droid_lsp(c.name) and c:supports_method "textDocument/foldingRange" then
                 enable(ev.buf)
             end
         end,
@@ -107,7 +117,10 @@ function M.setup()
     vim.api.nvim_create_autocmd("LspDetach", {
         group = group,
         callback = function(ev)
-            restore(ev.buf)
+            local c = vim.lsp.get_client_by_id(ev.data.client_id)
+            if c and is_droid_lsp(c.name) then
+                restore(ev.buf)
+            end
         end,
     })
 end

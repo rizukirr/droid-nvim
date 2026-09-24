@@ -199,6 +199,13 @@ end
 -- before that refuse it, which is what this latch is for.
 local reload_unsupported = false
 
+--- The config M.start built (defaults merged with .droid-lsp.lua overrides),
+--- kept so a reload can rebuild initializationOptions from it instead of the
+--- unmerged cfg.lsp.kotlin. Set by setup_auto_reload, which already receives
+--- it from the kotlin module.
+---@type table|nil
+local merged_kotlin_cfg = nil
+
 --- Send `intellij/reloadWorkspace`. Progress/failure streams back via importLog.
 --- Pass `{ silent = true }` (used by auto-reload) to suppress the "reloading"
 --- message so a build-file save does not spam the cmdline / trigger hit-enter.
@@ -223,7 +230,9 @@ function M.reload(opts)
     end
     -- The server re-applies the initializationOptions carried by the request, so
     -- a reload picks up config changes without a restart (reference lspClient.ts).
-    local kotlin_cfg = require("droid.config").get().lsp.kotlin or {}
+    -- Uses the merged config M.start built, so a .droid-lsp.lua override survives
+    -- a reload instead of being dropped back to cfg.lsp.kotlin.
+    local kotlin_cfg = merged_kotlin_cfg or require("droid.config").get().lsp.kotlin or {}
     local params = { initializationOptions = require("droid.lsp.kotlin")._init_options(kotlin_cfg) }
     c:request("intellij/reloadWorkspace", params, function(err)
         if not err then
@@ -261,6 +270,7 @@ end
 --- is saved (unless disabled). Idempotent via a cleared augroup.
 ---@param kotlin_cfg table
 function M.setup_auto_reload(kotlin_cfg)
+    merged_kotlin_cfg = kotlin_cfg
     local grp = vim.api.nvim_create_augroup("DroidKotlinSync", { clear = true })
     vim.api.nvim_create_autocmd("BufWritePost", {
         group = grp,
@@ -276,6 +286,18 @@ function M.setup_auto_reload(kotlin_cfg)
             end
             -- Silent: no per-save "reloading" echo (avoids the hit-enter prompt).
             M.reload { silent = true }
+        end,
+    })
+
+    -- kotlin_ls exiting mid-import leaves progress_open true, so the next
+    -- import would send a report with no matching begin.
+    vim.api.nvim_create_autocmd("LspDetach", {
+        group = grp,
+        callback = function(ev)
+            local c = vim.lsp.get_client_by_id(ev.data.client_id)
+            if c and c.name == "kotlin_ls" then
+                progress_open = false
+            end
         end,
     })
 end

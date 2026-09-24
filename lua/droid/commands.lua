@@ -97,8 +97,8 @@ function M.setup_commands()
         local filters = {}
 
         for _, arg in ipairs(opts.fargs) do
-            local key, value = arg:match "([^=]+)=([^=]+)"
-            if key and value then
+            local key, value = arg:match "^([^=]+)=(.*)$"
+            if key and value ~= "" then
                 filters[key] = value
             end
         end
@@ -255,6 +255,15 @@ function M.setup_commands()
                     if not ok then
                         return
                     end
+
+                    local bufname = "droid-docs://" .. url
+                    local existing = vim.fn.bufnr(bufname)
+                    if existing ~= -1 then
+                        vim.cmd "new"
+                        vim.api.nvim_win_set_buf(vim.api.nvim_get_current_win(), existing)
+                        return
+                    end
+
                     vim.cmd "new"
                     local buf = vim.api.nvim_get_current_buf()
                     vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(body, "\n", { plain = true }))
@@ -263,7 +272,7 @@ function M.setup_commands()
                     vim.bo[buf].swapfile = false
                     vim.bo[buf].filetype = "markdown"
                     vim.bo[buf].modifiable = false
-                    vim.api.nvim_buf_set_name(buf, "droid-docs://" .. url)
+                    vim.api.nvim_buf_set_name(buf, bufname)
                 end)
             end)
         end)

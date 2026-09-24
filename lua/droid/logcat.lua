@@ -166,6 +166,17 @@ function M.start(adb, device_id, mode, override_filters)
     local cfg = config.get()
     local active_filters = merged_filters(override_filters)
 
+    if active_filters.grep_pattern then
+        -- Matching the pattern against itself forces the parser through any
+        -- literal characters it has, which is enough to surface a syntax
+        -- error like an unbalanced capture or bracket.
+        local pattern_ok = pcall(string.match, active_filters.grep_pattern, active_filters.grep_pattern)
+        if not pattern_ok then
+            vim.notify("Invalid grep pattern: " .. active_filters.grep_pattern, vim.log.levels.ERROR)
+            return
+        end
+    end
+
     -- Enhanced reuse logic with ownership checking
     local buf_info = buffer.get_buffer_info()
     -- The panel is shared with Gradle: never kill a running task to show logs.
@@ -227,9 +238,13 @@ function M.start(adb, device_id, mode, override_filters)
         -- Output arrives in chunks split at newlines: data[1] continues the
         -- previous chunk's last line, and data[#data] is a line not yet ended.
         local pending = ""
+        local pattern_failed = false
         local job_opts = {
             stdout_buffered = false,
             on_stdout = function(_, data)
+                if pattern_failed then
+                    return
+                end
                 if not data then
                     return
                 end
@@ -238,9 +253,26 @@ function M.start(adb, device_id, mode, override_filters)
 
                 local lines = data
                 if active_filters.grep_pattern then
-                    lines = vim.tbl_filter(function(line)
-                        return line:match(active_filters.grep_pattern) ~= nil
-                    end, data)
+                    -- The up-front check in M.start only catches a pattern whose
+                    -- broken part sits where a self-match reaches it; a real log
+                    -- line can still walk the parser into it, so guard here too.
+                    local filtered = {}
+                    for _, line in ipairs(data) do
+                        local match_ok, matched = pcall(string.match, line, active_filters.grep_pattern)
+                        if not match_ok then
+                            pattern_failed = true
+                            vim.notify(
+                                "Invalid grep pattern " .. active_filters.grep_pattern .. ": " .. matched,
+                                vim.log.levels.ERROR
+                            )
+                            buffer.stop_current_job()
+                            return
+                        end
+                        if matched then
+                            table.insert(filtered, line)
+                        end
+                    end
+                    lines = filtered
                 end
                 if #lines == 0 then
                     return

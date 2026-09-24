@@ -96,7 +96,6 @@ function M.setup_buffer(type)
     if type == "logcat" then
         vim.bo[M.buffer_id].filetype = "logcat"
         vim.bo[M.buffer_id].modifiable = false
-        vim.bo[M.buffer_id].readonly = true
     elseif type == "gradle" then
         vim.bo[M.buffer_id].filetype = "terminal"
         vim.bo[M.buffer_id].modifiable = true
@@ -105,7 +104,9 @@ function M.setup_buffer(type)
 
     -- Common buffer settings
     vim.bo[M.buffer_id].buflisted = false
-    vim.bo[M.buffer_id].bufhidden = "wipe"
+    -- "hide" keeps the buffer (and any job attached to it) alive when its
+    -- window closes; only BufDelete/BufWipeout should stop the job.
+    vim.bo[M.buffer_id].bufhidden = "hide"
 end
 
 -- Open window according to display mode
@@ -166,8 +167,11 @@ function M.attach_cleanup()
         end,
     })
 
-    -- Handle Neovim exit
+    -- Handle Neovim exit. A fresh augroup with clear = true each call keeps
+    -- this at one autocmd no matter how many buffers attach_cleanup has seen.
+    local group = vim.api.nvim_create_augroup("droid_buffer_cleanup", { clear = true })
     vim.api.nvim_create_autocmd("VimLeavePre", {
+        group = group,
         callback = function()
             M.close()
         end,
@@ -188,7 +192,9 @@ function M.close()
     M.stop_current_job()
 
     if M.window_id and vim.api.nvim_win_is_valid(M.window_id) then
-        vim.api.nvim_win_close(M.window_id, true)
+        -- Closing the last window in the last tab raises E444; that is not
+        -- an error worth surfacing here, the buffer gets wiped below anyway.
+        pcall(vim.api.nvim_win_close, M.window_id, true)
     end
 
     if M.buffer_id and vim.api.nvim_buf_is_valid(M.buffer_id) then
@@ -242,12 +248,20 @@ function M.focus()
     return false
 end
 
--- Scroll to bottom of buffer
+-- Move the cursor to the last line, but only when it is already there --
+-- i.e. the reader is following the tail. A cursor left further up (the
+-- reader scrolled back to look at earlier output) is never yanked down.
 function M.scroll_to_bottom()
-    if M.is_valid() then
-        vim.api.nvim_win_call(M.window_id, function()
-            vim.cmd "normal! G"
-        end)
+    if not M.is_valid() then
+        return
+    end
+
+    local last_line = vim.api.nvim_buf_line_count(M.buffer_id)
+    local cursor_line = vim.api.nvim_win_get_cursor(M.window_id)[1]
+    -- last_line - 1 covers a cursor that was already on the tail before the
+    -- lines just written pushed the last line number forward by one.
+    if cursor_line == last_line or cursor_line == last_line - 1 then
+        vim.api.nvim_win_set_cursor(M.window_id, { last_line, 0 })
     end
 end
 

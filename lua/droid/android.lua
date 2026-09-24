@@ -24,7 +24,7 @@ local function extract_application_id(content)
         -- skip comments
         if not line:match "^%s*//" and line:find "applicationId" then
             local app_id = line:match "applicationId%s*=?%s*[\"']([^\"']+)[\"']"
-            if app_id then
+            if app_id and app_id:match "^[%a_][%w_]*%.[%w_.]*[%w_]$" then
                 return app_id
             end
         end
@@ -337,27 +337,51 @@ function M.wait_for_device_ready(adb, known, callback)
     local start_time = vim.loop.now()
     local device_found = false
     local current_device_id = nil
+    -- Guards against a tick starting a second check while one is still in
+    -- flight, and against any check (including one still in flight past the
+    -- timeout) acting again once the wait has already finished.
+    local in_flight = false
+    local done = false
+
+    local function finish(fn)
+        if done then
+            return
+        end
+        done = true
+        timer:stop()
+        timer:close()
+        fn()
+    end
 
     progress.update_spinner_message "Waiting for device to come online"
 
     timer:start(0, cfg.android.boot_check_interval_ms or 3000, function()
+        if done or in_flight then
+            return
+        end
+
         local elapsed = vim.loop.now() - start_time
         local timeout = cfg.android.boot_complete_timeout_ms or 120000
 
         if elapsed > timeout then
-            timer:stop()
-            timer:close()
-            vim.schedule(function()
-                progress.stop_spinner()
-                vim.notify("Timed out waiting for device to boot completely", vim.log.levels.ERROR)
-                callback(nil)
+            finish(function()
+                vim.schedule(function()
+                    progress.stop_spinner()
+                    vim.notify("Timed out waiting for device to boot completely", vim.log.levels.ERROR)
+                    callback(nil)
+                end)
             end)
             return
         end
 
         if not device_found then
             -- First phase: wait for device to appear in adb devices
+            in_flight = true
             M.get_running_devices(adb, function(devices)
+                in_flight = false
+                if done then
+                    return
+                end
                 for _, d in ipairs(devices) do
                     if not known[d.id] and d.id:match "^emulator%-" then
                         device_found = true
@@ -369,12 +393,17 @@ function M.wait_for_device_ready(adb, known, callback)
             end)
         else
             -- Second phase: wait for boot completion
+            in_flight = true
             is_device_boot_completed(adb, current_device_id, function(is_ready)
+                in_flight = false
+                if done then
+                    return
+                end
                 if is_ready then
-                    timer:stop()
-                    timer:close()
-                    progress.update_spinner_message "Device ready for installation"
-                    callback(current_device_id)
+                    finish(function()
+                        progress.update_spinner_message "Device ready for installation"
+                        callback(current_device_id)
+                    end)
                 end
             end)
         end

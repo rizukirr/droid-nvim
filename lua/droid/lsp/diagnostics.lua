@@ -71,7 +71,14 @@ local function has_annotation(bufnr, lnum, names)
         end
         -- The reported line itself may hold the declaration; above it only
         -- annotations and comments keep the run alive.
-        if i < #lines and line ~= "" and not line:match "^@" and not line:match "^//" and not line:match "^%*" and not line:match "^/%*" then
+        if
+            i < #lines
+            and line ~= ""
+            and not line:match "^@"
+            and not line:match "^//"
+            and not line:match "^%*"
+            and not line:match "^/%*"
+        then
             return false
         end
     end
@@ -111,12 +118,19 @@ local function apply_filters(diagnostics, ft, bufnr)
 end
 
 --- Refresh diagnostics for all stored buffers using current toggle state.
+--- A pair whose live diagnostics are empty was cleared through
+--- vim.diagnostic.reset (which bypasses the stored cache), so it is dropped
+--- instead of being re-set from the stale cache.
 local function refresh_all()
     for bufnr, namespaces in pairs(stored) do
         if vim.api.nvim_buf_is_valid(bufnr) then
             local ft = vim.bo[bufnr].filetype
             for ns, diags in pairs(namespaces) do
-                original_set(ns, bufnr, apply_filters(diags, ft, bufnr))
+                if #vim.diagnostic.get(bufnr, { namespace = ns }) == 0 then
+                    namespaces[ns] = nil
+                else
+                    original_set(ns, bufnr, apply_filters(diags, ft, bufnr))
+                end
             end
         else
             stored[bufnr] = nil

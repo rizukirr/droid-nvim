@@ -12,7 +12,10 @@ local function check_android_cli()
     cli.reset_cache() -- always re-probe inside checkhealth
 
     local raw = (require "droid.config").get().android_cli
-    local toggle = type(raw) == "table" and raw.enabled or raw
+    local toggle = raw
+    if type(raw) == "table" then
+        toggle = raw.enabled
+    end
     vim.health.info("config.android_cli = " .. vim.inspect(toggle))
 
     local exe = vim.fn.exepath "android"
@@ -84,12 +87,12 @@ local function check_kotlin_lsp()
     if #clients > 0 then
         vim.health.ok("kotlin_ls attached (" .. #clients .. " client(s))")
     else
-        vim.health.info("kotlin_ls not attached — open a .kt file inside a Gradle/Maven project")
+        vim.health.info "kotlin_ls not attached — open a .kt file inside a Gradle/Maven project"
     end
     if pcall(require, "dap") then
-        vim.health.ok("nvim-dap present — wire require('droid.lsp.dap') for Kotlin debugging")
+        vim.health.ok "nvim-dap present — wire require('droid.lsp.dap') for Kotlin debugging"
     else
-        vim.health.info("nvim-dap not installed (optional; needed only for debugging via droid.lsp.dap)")
+        vim.health.info "nvim-dap not installed (optional; needed only for debugging via droid.lsp.dap)"
     end
 end
 

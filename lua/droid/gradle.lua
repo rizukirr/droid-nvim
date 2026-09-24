@@ -6,23 +6,29 @@ local M = {}
 M.selected_variant = "Debug"
 
 --- Locate APKs produced by `assemble<Variant>` under the standard AGP
---- output layout. Handles both:
+--- output layout. Handles all of:
 ---   - default builds: */build/outputs/apk/<variantLower>/*.apk
----   - flavored builds: */build/outputs/apk/<flavor><Variant>/*.apk
+---   - flavored builds, single directory: */build/outputs/apk/<flavor><Variant>/*.apk
 ---     (e.g. freeDebug, paidRelease)
---- An APK is considered a match when its parent directory name either
---- equals variant:lower() or ends with the variant in its camelCase form.
+---   - flavored builds, nested directories: */build/outputs/apk/<flavor>/<variantLower>/*.apk
+---     (e.g. free/debug, paid/release)
+--- An APK is considered a match when the lowercased path segments between
+--- `apk/` and the file, joined together, either equal variant:lower() or
+--- end with it.
 ---@param cwd string project root
 ---@param variant string e.g. "Debug" or "Release"
 ---@return string[] absolute APK paths
 function M.find_apks_for_variant(cwd, variant)
     local lower = variant:lower()
-    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "*", "*.apk")
+    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "**", "*.apk")
     local matches = {}
     for _, apk in ipairs(vim.fn.glob(pattern, false, true)) do
-        local dir = vim.fs.basename(vim.fs.dirname(apk))
-        if dir == lower or (dir:sub(-#variant) == variant and #dir > #variant) then
-            table.insert(matches, apk)
+        local rel = apk:match "/apk/(.+)/[^/]+$"
+        if rel then
+            local dir = rel:gsub("/", ""):lower()
+            if dir == lower or (dir:sub(-#lower) == lower and #dir > #lower) then
+                table.insert(matches, apk)
+            end
         end
     end
     return matches
@@ -100,7 +106,14 @@ local function run_gradle_task(cwd, gradlew, task, args, callback)
                 buffer.release_job(job_id)
 
                 vim.schedule(function()
-                    if not buffer.is_valid() then
+                    -- The buffer (and its job) survives its window closing
+                    -- (bufhidden = "hide"); only reopen a window for it when
+                    -- the buffer itself is gone, or it has none shown.
+                    if buffer.buffer_id and vim.api.nvim_buf_is_valid(buffer.buffer_id) then
+                        if not buffer.is_valid() then
+                            buffer.open_window "horizontal"
+                        end
+                    else
                         buffer.get_or_create("gradle", "horizontal")
                     end
 
@@ -260,25 +273,19 @@ end
 
 --- Run the install task as the gradle buffer's current job, then report.
 --- `step` is passed through to callbacks that track which step ran.
+--- Runs through the same terminal path as `run_gradle_task` so its output
+--- lands in the panel, instead of a plain `jobstart` the panel never shows.
 local function run_install(g, task, ok_message, callback, step)
-    local job_id = vim.fn.jobstart({ g.gradlew, task }, {
-        cwd = g.cwd,
-        on_exit = function(job_id, code)
-            buffer.release_job(job_id)
-            progress.stop_spinner()
+    run_gradle_task(g.cwd, g.gradlew, task, nil, function(success, code)
+        progress.stop_spinner()
 
-            local success = code == 0
-            local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
-            vim.notify(message, success and vim.log.levels.INFO or vim.log.levels.ERROR)
+        local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
+        vim.notify(message, success and vim.log.levels.INFO or vim.log.levels.ERROR)
 
-            if callback then
-                vim.schedule(function()
-                    callback(success, code, message, step)
-                end)
-            end
-        end,
-    })
-    buffer.set_current_job(job_id)
+        if callback then
+            callback(success, code, message, step)
+        end
+    end)
 end
 
 function M.install(callback)

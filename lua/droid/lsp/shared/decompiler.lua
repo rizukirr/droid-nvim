@@ -6,25 +6,25 @@ local M = {}
 --- URI schemes that LSPs can decompile
 M.schemes = { "jar", "jrt" }
 
---- Get the kotlin_ls client attached to the given buffer, if any
----@param bufnr number
+--- Get the kotlin_ls client, if any. It never attaches to the jar://
+--- buffer itself (no FileType fires for it), so this looks it up without a
+--- buffer filter.
 ---@return vim.lsp.Client|nil
-local function get_decompile_client(bufnr)
-    return vim.lsp.get_clients({ name = "kotlin_ls", bufnr = bufnr })[1]
+local function get_decompile_client()
+    return vim.lsp.get_clients({ name = "kotlin_ls" })[1]
 end
 
 --- Called from a BufReadCmd autocmd. Asks the appropriate LSP to decompile the URI
 --- and fills the buffer with the result.
 ---@param uri string e.g. "jar:///path/to/lib.jar!/com/Foo.class"
-function M.handle(uri)
-    local buf = vim.api.nvim_get_current_buf()
-
+---@param buf number the buffer the autocmd fired for
+function M.handle(uri, buf)
     -- The LSP may still be starting - poll until it attaches or we time out
     local attempts, limit = 0, 50 -- 50 * 200ms = 10s
 
     local function poll()
         attempts = attempts + 1
-        local client = get_decompile_client(buf)
+        local client = get_decompile_client()
         if client then
             M._decompile(buf, uri, client)
             return
@@ -95,7 +95,7 @@ function M.setup()
             group = group,
             pattern = scheme .. "://*",
             callback = function(ev)
-                M.handle(ev.match)
+                M.handle(ev.match, ev.buf)
             end,
         })
     end
