@@ -260,11 +260,12 @@ function M.start(adb, device_id, mode, override_filters)
                     end
                 end
             end,
-            on_exit = function(_, _, _)
-                buffer.set_current_job(nil)
+            on_exit = function(job_id)
+                if not buffer.release_job(job_id) then
+                    return
+                end
                 M.current_device_id = nil
                 M.current_adb = nil
-                -- Release buffer lock when logcat exits
                 vim.notify("Logcat process exited", vim.log.levels.INFO)
             end,
         }

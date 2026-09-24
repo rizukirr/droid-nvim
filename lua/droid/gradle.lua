@@ -96,8 +96,8 @@ local function run_gradle_task(cwd, gradlew, task, args, callback)
         local job_id = vim.fn.jobstart(cmd, {
             term = true,
             cwd = cwd,
-            on_exit = function(_, exit_code)
-                buffer.set_current_job(nil)
+            on_exit = function(job_id, exit_code)
+                buffer.release_job(job_id)
 
                 vim.schedule(function()
                     if not buffer.is_valid() then
@@ -263,8 +263,8 @@ end
 local function run_install(g, task, ok_message, callback, step)
     local job_id = vim.fn.jobstart({ g.gradlew, task }, {
         cwd = g.cwd,
-        on_exit = function(_, code)
-            buffer.set_current_job(nil)
+        on_exit = function(job_id, code)
+            buffer.release_job(job_id)
             progress.stop_spinner()
 
             local success = code == 0
