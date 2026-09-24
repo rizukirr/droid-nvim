@@ -216,48 +216,53 @@ function M.start(adb, device_id, mode, override_filters)
     end
 
     build_logcat_command(adb, device_id, active_filters, function(cmd)
+        -- Output arrives in chunks split at newlines: data[1] continues the
+        -- previous chunk's last line, and data[#data] is a line not yet ended.
+        local pending = ""
         local job_opts = {
             stdout_buffered = false,
             on_stdout = function(_, data)
-                if data then
-                    local filtered_data = data
+                if not data then
+                    return
+                end
+                data[1] = pending .. data[1]
+                pending = table.remove(data)
 
-                    -- Apply grep pattern filtering
-                    if active_filters.grep_pattern then
-                        filtered_data = {}
-                        for _, line in ipairs(data) do
-                            if line:match(active_filters.grep_pattern) then
-                                table.insert(filtered_data, line)
-                            end
-                        end
+                local lines = data
+                if active_filters.grep_pattern then
+                    lines = vim.tbl_filter(function(line)
+                        return line:match(active_filters.grep_pattern) ~= nil
+                    end, data)
+                end
+                if #lines == 0 then
+                    return
+                end
+
+                local bufnr = buffer.get_buffer_info().buffer_id
+                if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+                    return
+                end
+                local was_modifiable = vim.bo[bufnr].modifiable
+                vim.bo[bufnr].modifiable = true
+
+                -- A fresh buffer holds one empty line: replace it instead of appending after it.
+                local fresh = vim.api.nvim_buf_line_count(bufnr) == 1
+                    and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
+                vim.api.nvim_buf_set_lines(bufnr, fresh and 0 or -1, -1, false, lines)
+
+                -- Ring-buffer trim: keep at most max_lines lines.
+                local max_lines = cfg.logcat.max_lines
+                if max_lines and max_lines > 0 then
+                    local line_count = vim.api.nvim_buf_line_count(bufnr)
+                    if line_count > max_lines then
+                        vim.api.nvim_buf_set_lines(bufnr, 0, line_count - max_lines, false, {})
                     end
+                end
 
-                    if #filtered_data > 0 then
-                        local buf_info = buffer.get_buffer_info()
-                        if buf_info.buffer_id and vim.api.nvim_buf_is_valid(buf_info.buffer_id) then
-                            -- Temporarily make buffer modifiable for writing
-                            local was_modifiable = vim.bo[buf_info.buffer_id].modifiable
-                            vim.bo[buf_info.buffer_id].modifiable = true
+                vim.bo[bufnr].modifiable = was_modifiable
 
-                            vim.api.nvim_buf_set_lines(buf_info.buffer_id, -1, -1, false, filtered_data)
-
-                            -- Ring-buffer trim: keep at most max_lines lines.
-                            local max_lines = cfg.logcat.max_lines
-                            if max_lines and max_lines > 0 then
-                                local line_count = vim.api.nvim_buf_line_count(buf_info.buffer_id)
-                                if line_count > max_lines then
-                                    vim.api.nvim_buf_set_lines(buf_info.buffer_id, 0, line_count - max_lines, false, {})
-                                end
-                            end
-
-                            -- Restore original modifiable state
-                            vim.bo[buf_info.buffer_id].modifiable = was_modifiable
-
-                            if buffer.is_valid() then
-                                buffer.scroll_to_bottom()
-                            end
-                        end
-                    end
+                if buffer.is_valid() then
+                    buffer.scroll_to_bottom()
                 end
             end,
             on_exit = function(job_id)
