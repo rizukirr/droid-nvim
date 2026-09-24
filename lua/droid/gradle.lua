@@ -267,25 +267,19 @@ end
 
 --- Run the install task as the gradle buffer's current job, then report.
 --- `step` is passed through to callbacks that track which step ran.
+--- Runs through the same terminal path as `run_gradle_task` so its output
+--- lands in the panel, instead of a plain `jobstart` the panel never shows.
 local function run_install(g, task, ok_message, callback, step)
-    local job_id = vim.fn.jobstart({ g.gradlew, task }, {
-        cwd = g.cwd,
-        on_exit = function(job_id, code)
-            buffer.release_job(job_id)
-            progress.stop_spinner()
+    run_gradle_task(g.cwd, g.gradlew, task, nil, function(success, code)
+        progress.stop_spinner()
 
-            local success = code == 0
-            local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
-            vim.notify(message, success and vim.log.levels.INFO or vim.log.levels.ERROR)
+        local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
+        vim.notify(message, success and vim.log.levels.INFO or vim.log.levels.ERROR)
 
-            if callback then
-                vim.schedule(function()
-                    callback(success, code, message, step)
-                end)
-            end
-        end,
-    })
-    buffer.set_current_job(job_id)
+        if callback then
+            callback(success, code, message, step)
+        end
+    end)
 end
 
 function M.install(callback)
