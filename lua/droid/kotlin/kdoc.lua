@@ -4,6 +4,28 @@
 
 local M = {}
 
+--- Split a parameter list on top-level commas only, so a comma inside the
+--- parentheses of a function-typed parameter like `(Int) -> Unit` does not
+--- split that parameter in two.
+---@param paramstr string
+---@return string[]
+local function split_top_level(paramstr)
+    local segs, depth, start = {}, 0, 1
+    for i = 1, #paramstr do
+        local ch = paramstr:sub(i, i)
+        if ch == "(" then
+            depth = depth + 1
+        elseif ch == ")" then
+            depth = depth - 1
+        elseif ch == "," and depth == 0 then
+            segs[#segs + 1] = paramstr:sub(start, i - 1)
+            start = i + 1
+        end
+    end
+    segs[#segs + 1] = paramstr:sub(start)
+    return segs
+end
+
 --- Build KDoc lines for a signature.
 ---@param sig { name?:string, params?:string[], has_return?:boolean }
 ---@param indent string leading whitespace to prepend to each line
@@ -26,18 +48,20 @@ end
 ---@return { name:string, params:string[], has_return:boolean }|nil
 function M._parse_signature_text(text)
     text = text:gsub("%s+", " ")
-    local name, paramstr = text:match("fun%s+`?([%w_]+)`?%s*%((.-)%)")
+    local head_start, head_end, name, parens = text:find "fun%s+`?([%w_]+)`?%s*(%b())"
     if not name then
         return nil
     end
+    local paramstr = parens:sub(2, -2)
     local params = {}
-    for _, seg in ipairs(vim.split(paramstr, ",", { plain = true })) do
-        local pname = seg:match("([%w_]+)%s*:")
+    for _, seg in ipairs(split_top_level(paramstr)) do
+        local pname = seg:match "([%w_]+)%s*:"
         if pname then
             params[#params + 1] = pname
         end
     end
-    local has_return = text:match("%)%s*:%s*[%w_]") ~= nil
+    local after = text:sub(head_end + 1)
+    local has_return = after:match "^%s*:%s*[%w_]" ~= nil
     return { name = name, params = params, has_return = has_return }
 end
 
@@ -51,13 +75,13 @@ local function gather_signature(bufnr, fn_lnum)
     for i = fn_lnum, math.min(fn_lnum + 20, total) do
         local line = vim.api.nvim_buf_get_lines(bufnr, i - 1, i, false)[1] or ""
         parts[#parts + 1] = line
-        for ch in line:gmatch("[%(%)]") do
+        for ch in line:gmatch "[%(%)]" do
             depth = depth + (ch == "(" and 1 or -1)
         end
         if i > fn_lnum and depth <= 0 then
             break
         end
-        if line:find("%)") and depth <= 0 then
+        if line:find "%)" and depth <= 0 then
             break
         end
     end
@@ -73,8 +97,8 @@ function M.signature(bufnr, lnum)
     for i = lnum, math.min(lnum + 20, total) do
         local line = vim.api.nvim_buf_get_lines(bufnr, i - 1, i, false)[1] or ""
         -- Skip comment lines so `fun` inside a `//` or ` * ` comment is ignored.
-        local is_comment = line:match("^%s*//") or line:match("^%s*%*")
-        if not is_comment and line:match("%f[%w]fun%f[%W]") then
+        local is_comment = line:match "^%s*//" or line:match "^%s*%*"
+        if not is_comment and line:match "%f[%w]fun%f[%W]" then
             fn_lnum = i
             break
         end
@@ -90,11 +114,15 @@ function M.signature(bufnr, lnum)
     if tsok and parser then
         local ptree = parser:parse()[1]
         if ptree then
-            local node = ptree:root():named_descendant_for_range(fn_lnum - 1, 0, fn_lnum - 1, 0)
+            local fn_line = vim.api.nvim_buf_get_lines(bufnr, fn_lnum - 1, fn_lnum, false)[1] or ""
+            local col = (fn_line:find "%S" or 1) - 1
+            local node = ptree:root():named_descendant_for_range(fn_lnum - 1, col, fn_lnum - 1, col)
             while node and node:type() ~= "function_declaration" do
                 node = node:parent()
             end
-            if node then
+            -- Reject an ancestor that starts on an earlier line: that means
+            -- the lookup climbed past this `fun` to the function enclosing it.
+            if node and ({ node:range() })[1] == fn_lnum - 1 then
                 text = vim.treesitter.get_node_text(node, bufnr)
             end
         end
@@ -112,7 +140,7 @@ function M.generate()
         return
     end
     local fn_line = vim.api.nvim_buf_get_lines(bufnr, fn_lnum - 1, fn_lnum, false)[1] or ""
-    local indent = fn_line:match("^%s*") or ""
+    local indent = fn_line:match "^%s*" or ""
     local doc
     if sig then
         doc = M.build(sig, indent)
