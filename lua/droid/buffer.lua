@@ -96,7 +96,6 @@ function M.setup_buffer(type)
     if type == "logcat" then
         vim.bo[M.buffer_id].filetype = "logcat"
         vim.bo[M.buffer_id].modifiable = false
-        vim.bo[M.buffer_id].readonly = true
     elseif type == "gradle" then
         vim.bo[M.buffer_id].filetype = "terminal"
         vim.bo[M.buffer_id].modifiable = true
@@ -249,12 +248,20 @@ function M.focus()
     return false
 end
 
--- Scroll to bottom of buffer
+-- Move the cursor to the last line, but only when it is already there --
+-- i.e. the reader is following the tail. A cursor left further up (the
+-- reader scrolled back to look at earlier output) is never yanked down.
 function M.scroll_to_bottom()
-    if M.is_valid() then
-        vim.api.nvim_win_call(M.window_id, function()
-            vim.cmd "normal! G"
-        end)
+    if not M.is_valid() then
+        return
+    end
+
+    local last_line = vim.api.nvim_buf_line_count(M.buffer_id)
+    local cursor_line = vim.api.nvim_win_get_cursor(M.window_id)[1]
+    -- last_line - 1 covers a cursor that was already on the tail before the
+    -- lines just written pushed the last line number forward by one.
+    if cursor_line == last_line or cursor_line == last_line - 1 then
+        vim.api.nvim_win_set_cursor(M.window_id, { last_line, 0 })
     end
 end
 
