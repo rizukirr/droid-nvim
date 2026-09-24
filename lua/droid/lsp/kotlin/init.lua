@@ -188,16 +188,11 @@ function M._init_options(kotlin_cfg)
     return { defaultSdk = kotlin_cfg.jdk_for_symbol_resolution }
 end
 
---- Filetypes kotlin_ls attaches to. Java is opt-in: attaching keeps Kotlin's
---- cross-language analysis fresh but doubles LSP providers with jdtls.
----@param kotlin_cfg table
+--- Filetypes kotlin_ls attaches to.
+---@param _kotlin_cfg table
 ---@return string[]
-function M._filetypes(kotlin_cfg)
-    local ft = { "kotlin" }
-    if kotlin_cfg.attach_to_java then
-        table.insert(ft, "java")
-    end
-    return ft
+function M._filetypes(_kotlin_cfg)
+    return { "kotlin" }
 end
 
 ---@param cfg table Full plugin config

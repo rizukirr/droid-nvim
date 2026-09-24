@@ -6,7 +6,6 @@ local M = {}
 --- LSP names managed by droid.nvim
 M.LSP_NAMES = {
     kotlin = "kotlin_ls",
-    java = "jdtls",
     groovy = "groovy_ls",
 }
 
@@ -48,18 +47,6 @@ function M.kotlin(filter)
     return clients[1]
 end
 
---- Get first Java LSP client
----@param filter? { bufnr?: number }
----@return vim.lsp.Client|nil
-function M.java(filter)
-    local opts = { name = M.LSP_NAMES.java }
-    if filter and filter.bufnr then
-        opts.bufnr = filter.bufnr
-    end
-    local clients = vim.lsp.get_clients(opts)
-    return clients[1]
-end
-
 --- Get first Groovy LSP client
 ---@param filter? { bufnr?: number }
 ---@return vim.lsp.Client|nil
@@ -90,7 +77,7 @@ function M.run_command(cmd_name, args, cb, bufnr)
 end
 
 --- Send workspace/executeCommand to a specific LSP by name
----@param lsp_name string e.g. "kotlin_ls", "jdtls"
+---@param lsp_name string e.g. "kotlin_ls", "groovy_ls"
 ---@param cmd_name string command name
 ---@param args? table command arguments
 ---@param cb fun(err: any, result: any)

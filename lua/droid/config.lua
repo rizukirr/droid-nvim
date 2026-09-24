@@ -32,7 +32,6 @@ local defaults = {
             -- kotlin-lsp has no Compose support, so it reports every @Composable
             -- function as badly named; Android Studio and ktlint both exempt them.
             suppress_when_annotated = { FunctionName = { "Composable" } },
-            attach_to_java = false, -- Also attach kotlin_ls to Java buffers (fresh cross-language analysis; doubles providers with jdtls)
             auto_reload = true, -- Reload the LSP workspace when a build file (build.gradle, pom.xml, …) is saved
             inlay_hints = {
                 enabled = true,
@@ -48,18 +47,6 @@ local defaults = {
                 value_ranges = true,
                 kotlin_time = true,
                 call_chains = false,
-            },
-        },
-
-        -- Java LSP (jdtls)
-        java = {
-            enabled = true,
-            jvm_args = {}, -- Additional JVM arguments
-            root_markers = nil, -- Override root detection (defaults: gradlew, settings.gradle, etc.)
-            suppress_diagnostics = {}, -- Diagnostic codes to hide
-            inlay_hints = {
-                enabled = true,
-                parameters = true,
             },
         },
 
@@ -112,7 +99,6 @@ local function migrate_old_config(cfg)
                     .. "  lsp = {\n"
                     .. "    enabled = true,\n"
                     .. "    kotlin = { inlay_hints = { ... } },\n"
-                    .. "    java = { enabled = true },\n"
                     .. "    groovy = { enabled = true },\n"
                     .. "  }\n"
                     .. "See :help droid-config for details.",
