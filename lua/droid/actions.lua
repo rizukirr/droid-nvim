@@ -126,6 +126,33 @@ function M.select_target(tools, callback)
     android.choose_target(tools.adb, tools.emulator, callback)
 end
 
+--- Start `avd`, wait until the new emulator has booted, then call
+--- `on_ready(device_id)`, or `on_ready(nil)` when it never came up.
+local function start_avd(tools, avd, on_ready)
+    android.get_running_devices(tools.adb, function(devices)
+        local known = {}
+        for _, d in ipairs(devices) do
+            known[d.id] = true
+        end
+
+        progress.start_spinner "Starting emulator"
+        local cli = require "droid.backends.android_cli"
+        if cli.prefers "emulator" then
+            cli.start_emulator(avd)
+        else
+            android.start_emulator(tools.emulator, avd)
+        end
+
+        android.wait_for_device_ready(tools.adb, known, function(device_id)
+            progress.stop_spinner()
+            if not device_id then
+                vim.notify("Failed to start emulator or device not ready", vim.log.levels.ERROR)
+            end
+            on_ready(device_id)
+        end)
+    end)
+end
+
 function M.build_and_run(on_complete)
     local tools = M.get_required_tools()
     if not tools then
@@ -146,17 +173,8 @@ function M.build_and_run(on_complete)
         if target.type == "device" then
             execute_build_install(tools, target.id, true, on_complete)
         elseif target.type == "avd" then
-            progress.start_spinner "Starting emulator"
-            local cli = require "droid.backends.android_cli"
-            if cli.prefers "emulator" then
-                cli.start_emulator(target.avd)
-            else
-                android.start_emulator(tools.emulator, target.avd)
-            end
-            android.wait_for_device_ready(tools.adb, function(device_id)
-                progress.stop_spinner()
+            start_avd(tools, target.avd, function(device_id)
                 if not device_id then
-                    vim.notify("Failed to start emulator or device not ready", vim.log.levels.ERROR)
                     if on_complete then
                         on_complete()
                     end
@@ -188,17 +206,8 @@ function M.install_only(on_complete)
         if target.type == "device" then
             execute_build_install(tools, target.id, false, on_complete)
         elseif target.type == "avd" then
-            progress.start_spinner "Starting emulator"
-            local cli = require "droid.backends.android_cli"
-            if cli.prefers "emulator" then
-                cli.start_emulator(target.avd)
-            else
-                android.start_emulator(tools.emulator, target.avd)
-            end
-            android.wait_for_device_ready(tools.adb, function(device_id)
-                progress.stop_spinner()
+            start_avd(tools, target.avd, function(device_id)
                 if not device_id then
-                    vim.notify("Failed to start emulator or device not ready", vim.log.levels.ERROR)
                     if on_complete then
                         on_complete()
                     end

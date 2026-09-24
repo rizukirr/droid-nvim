@@ -320,8 +320,13 @@ local function is_device_boot_completed(adb, device_id, callback)
     end)
 end
 
--- Enhanced device waiting that checks both device online status AND boot completion
-function M.wait_for_device_ready(adb, callback)
+--- Wait for a newly started emulator to come online and finish booting.
+--- Devices in `known` were online before the start and are ignored, so a
+--- connected phone is never mistaken for the new emulator.
+---@param adb string
+---@param known table<string, true> ids online before the emulator started
+---@param callback fun(device_id: string|nil)
+function M.wait_for_device_ready(adb, known, callback)
     local cfg = config.get()
 
     local timer = vim.loop.new_timer()
@@ -353,10 +358,13 @@ function M.wait_for_device_ready(adb, callback)
         if not device_found then
             -- First phase: wait for device to appear in adb devices
             M.get_running_devices(adb, function(devices)
-                if #devices > 0 then
-                    device_found = true
-                    current_device_id = devices[1].id
-                    progress.update_spinner_message "Device found, waiting for boot completion"
+                for _, d in ipairs(devices) do
+                    if not known[d.id] and d.id:match "^emulator%-" then
+                        device_found = true
+                        current_device_id = d.id
+                        progress.update_spinner_message "Device found, waiting for boot completion"
+                        return
+                    end
                 end
             end)
         else
