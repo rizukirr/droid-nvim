@@ -288,6 +288,18 @@ function M.setup_auto_reload(kotlin_cfg)
             M.reload { silent = true }
         end,
     })
+
+    -- kotlin_ls exiting mid-import leaves progress_open true, so the next
+    -- import would send a report with no matching begin.
+    vim.api.nvim_create_autocmd("LspDetach", {
+        group = grp,
+        callback = function(ev)
+            local c = vim.lsp.get_client_by_id(ev.data.client_id)
+            if c and c.name == "kotlin_ls" then
+                progress_open = false
+            end
+        end,
+    })
 end
 
 return M
