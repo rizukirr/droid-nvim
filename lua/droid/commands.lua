@@ -86,7 +86,6 @@ function M.setup_commands()
     end, {})
 
     vim.api.nvim_create_user_command("DroidLogcatStop", function()
-        clear_active()
         logcat.stop()
     end, {})
 

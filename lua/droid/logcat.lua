@@ -168,6 +168,14 @@ function M.start(adb, device_id, mode, override_filters)
 
     -- Enhanced reuse logic with ownership checking
     local buf_info = buffer.get_buffer_info()
+    -- The panel is shared with Gradle: never kill a running task to show logs.
+    if buf_info.job_id and buf_info.type == "gradle" then
+        vim.notify(
+            "A Gradle task is running in the droid panel. Run :DroidLogcat when it finishes.",
+            vim.log.levels.WARN
+        )
+        return
+    end
     if buf_info.job_id and M.current_adb == adb and M.current_device_id == device_id and buf_info.type == "logcat" then
         -- Same device and logcat is running
 
