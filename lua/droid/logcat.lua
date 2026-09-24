@@ -4,7 +4,6 @@ local buffer = require "droid.buffer"
 
 local M = {}
 
-M.auto_scroll = true
 M.current_filters = nil
 M.current_device_id = nil
 M.current_adb = nil
@@ -113,6 +112,13 @@ local function filters_equivalent(current, new)
     return true
 end
 
+--- The config filters with `overrides` laid over them.
+---@param overrides? table
+---@return table
+local function merged_filters(overrides)
+    return vim.tbl_extend("force", {}, config.get().logcat.filters or {}, overrides or {})
+end
+
 function M.apply_filters(user_filters, adb, device_id)
     -- If device info is provided, use it directly (skip device selection)
     if adb and device_id then
@@ -121,23 +127,8 @@ function M.apply_filters(user_filters, adb, device_id)
     end
 
     -- If logcat is already running, apply filters to current session
-    if M.job_id and M.current_adb and M.current_device_id then
-        -- Calculate what the new filters would be (same logic as in M.start)
-        local cfg = config.get()
-        local base_filters = cfg.logcat.filters or {}
-        local new_filters = {}
-
-        -- Start with user's config as base
-        for key, config_value in pairs(base_filters) do
-            new_filters[key] = config_value
-        end
-
-        -- Apply override filters if provided
-        if user_filters then
-            for key, override_value in pairs(user_filters) do
-                new_filters[key] = override_value
-            end
-        end
+    if M.is_running() and M.current_adb and M.current_device_id then
+        local new_filters = merged_filters(user_filters)
 
         -- Check if filters would actually change the logcat command
         if filters_equivalent(M.current_filters, new_filters) then
@@ -159,39 +150,8 @@ function M.apply_filters(user_filters, adb, device_id)
             return
         end
 
-        android.get_running_devices(tools.adb, function(devices)
-            if #devices == 0 then
-                vim.notify("No devices or emulators available", vim.log.levels.ERROR)
-                return
-            end
-
-            -- Auto-select if only one device and config allows it
-            local cfg = config.get()
-            if #devices == 1 and cfg.android.auto_select_single_target then
-                M.start(tools.adb, devices[1].id, nil, user_filters)
-                return
-            end
-
-            -- Multiple devices, show selection
-            local formatted_devices = {}
-            for _, device in ipairs(devices) do
-                table.insert(formatted_devices, {
-                    id = device.id,
-                    name = "Device: " .. device.name,
-                    display_name = device.name,
-                })
-            end
-
-            vim.ui.select(formatted_devices, {
-                prompt = "Select device for logcat",
-                format_item = function(item)
-                    return item.name
-                end,
-            }, function(choice)
-                if choice then
-                    M.start(tools.adb, choice.id, nil, user_filters)
-                end
-            end)
+        android.pick_running_device(tools.adb, "Select device for logcat", function(device_id)
+            M.start(tools.adb, device_id, nil, user_filters)
         end)
     end
 end
@@ -204,23 +164,18 @@ end
 --   override_filters: optional filters to override config (temporary)
 function M.start(adb, device_id, mode, override_filters)
     local cfg = config.get()
-    local base_filters = cfg.logcat.filters or {}
-    local active_filters = {}
-
-    -- Start with user's config as base
-    for key, config_value in pairs(base_filters) do
-        active_filters[key] = config_value
-    end
-
-    -- Apply override filters if provided (temporary override)
-    if override_filters then
-        for key, override_value in pairs(override_filters) do
-            active_filters[key] = override_value
-        end
-    end
+    local active_filters = merged_filters(override_filters)
 
     -- Enhanced reuse logic with ownership checking
     local buf_info = buffer.get_buffer_info()
+    -- The panel is shared with Gradle: never kill a running task to show logs.
+    if buf_info.job_id and buf_info.type == "gradle" then
+        vim.notify(
+            "A Gradle task is running in the droid panel. Run :DroidLogcat when it finishes.",
+            vim.log.levels.WARN
+        )
+        return
+    end
     if buf_info.job_id and M.current_adb == adb and M.current_device_id == device_id and buf_info.type == "logcat" then
         -- Same device and logcat is running
 
@@ -269,55 +224,61 @@ function M.start(adb, device_id, mode, override_filters)
     end
 
     build_logcat_command(adb, device_id, active_filters, function(cmd)
+        -- Output arrives in chunks split at newlines: data[1] continues the
+        -- previous chunk's last line, and data[#data] is a line not yet ended.
+        local pending = ""
         local job_opts = {
             stdout_buffered = false,
             on_stdout = function(_, data)
-                if data then
-                    local filtered_data = data
+                if not data then
+                    return
+                end
+                data[1] = pending .. data[1]
+                pending = table.remove(data)
 
-                    -- Apply grep pattern filtering
-                    if active_filters.grep_pattern then
-                        filtered_data = {}
-                        for _, line in ipairs(data) do
-                            if line:match(active_filters.grep_pattern) then
-                                table.insert(filtered_data, line)
-                            end
-                        end
-                    end
+                local lines = data
+                if active_filters.grep_pattern then
+                    lines = vim.tbl_filter(function(line)
+                        return line:match(active_filters.grep_pattern) ~= nil
+                    end, data)
+                end
+                if #lines == 0 then
+                    return
+                end
 
-                    if #filtered_data > 0 then
-                        local buf_info = buffer.get_buffer_info()
-                        if buf_info.buffer_id and vim.api.nvim_buf_is_valid(buf_info.buffer_id) then
-                            -- Temporarily make buffer modifiable for writing
-                            local was_modifiable = vim.bo[buf_info.buffer_id].modifiable
-                            vim.bo[buf_info.buffer_id].modifiable = true
+                local bufnr = buffer.get_buffer_info().buffer_id
+                if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+                    return
+                end
+                local was_modifiable = vim.bo[bufnr].modifiable
+                vim.bo[bufnr].modifiable = true
 
-                            vim.api.nvim_buf_set_lines(buf_info.buffer_id, -1, -1, false, filtered_data)
+                -- A fresh buffer holds one empty line: replace it instead of appending after it.
+                local fresh = vim.api.nvim_buf_line_count(bufnr) == 1
+                    and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
+                vim.api.nvim_buf_set_lines(bufnr, fresh and 0 or -1, -1, false, lines)
 
-                            -- Ring-buffer trim: keep at most max_lines lines.
-                            local max_lines = cfg.logcat.max_lines
-                            if max_lines and max_lines > 0 then
-                                local line_count = vim.api.nvim_buf_line_count(buf_info.buffer_id)
-                                if line_count > max_lines then
-                                    vim.api.nvim_buf_set_lines(buf_info.buffer_id, 0, line_count - max_lines, false, {})
-                                end
-                            end
-
-                            -- Restore original modifiable state
-                            vim.bo[buf_info.buffer_id].modifiable = was_modifiable
-
-                            if M.auto_scroll and buffer.is_valid() then
-                                buffer.scroll_to_bottom()
-                            end
-                        end
+                -- Ring-buffer trim: keep at most max_lines lines.
+                local max_lines = cfg.logcat.max_lines
+                if max_lines and max_lines > 0 then
+                    local line_count = vim.api.nvim_buf_line_count(bufnr)
+                    if line_count > max_lines then
+                        vim.api.nvim_buf_set_lines(bufnr, 0, line_count - max_lines, false, {})
                     end
                 end
+
+                vim.bo[bufnr].modifiable = was_modifiable
+
+                if buffer.is_valid() then
+                    buffer.scroll_to_bottom()
+                end
             end,
-            on_exit = function(_, _, _)
-                buffer.set_current_job(nil)
+            on_exit = function(job_id)
+                if not buffer.release_job(job_id) then
+                    return
+                end
                 M.current_device_id = nil
                 M.current_adb = nil
-                -- Release buffer lock when logcat exits
                 vim.notify("Logcat process exited", vim.log.levels.INFO)
             end,
         }

@@ -213,6 +213,18 @@ function M.set_current_job(job_id)
     M.current_job_id = job_id
 end
 
+--- Forget `job_id` if it is still the current job. A stopped job's on_exit runs
+--- after its replacement has started, so it must not clear the new one.
+---@param job_id integer
+---@return boolean released
+function M.release_job(job_id)
+    if M.current_job_id ~= job_id then
+        return false
+    end
+    M.current_job_id = nil
+    return true
+end
+
 -- Check if buffer and window are valid
 function M.is_valid()
     return M.buffer_id

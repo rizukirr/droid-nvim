@@ -84,13 +84,23 @@ end
 -- Per-project config (.droid-lsp.lua)
 ---------------------------------------------------------------------------
 
+--- Settings from `<cwd>/.droid-lsp.lua`. The file is Lua, so it runs only once
+--- the user trusts it through vim.secure.read, the same prompt as 'exrc'.
 ---@return table
-local function project_overrides()
+function M._project_overrides()
     local f = vim.fn.getcwd() .. "/.droid-lsp.lua"
     if vim.fn.filereadable(f) == 0 then
         return {}
     end
-    local ok, tbl = pcall(dofile, f)
+    local src = vim.secure.read(f)
+    if not src then
+        return {}
+    end
+    local chunk, err = load(src, "@" .. f)
+    local ok, tbl = false, err
+    if chunk then
+        ok, tbl = pcall(chunk)
+    end
     if ok and type(tbl) == "table" then
         return tbl
     end
@@ -188,18 +198,6 @@ function M._init_options(kotlin_cfg)
     return { defaultSdk = kotlin_cfg.jdk_for_symbol_resolution }
 end
 
---- Filetypes kotlin_ls attaches to. Java is opt-in: attaching keeps Kotlin's
---- cross-language analysis fresh but doubles LSP providers with jdtls.
----@param kotlin_cfg table
----@return string[]
-function M._filetypes(kotlin_cfg)
-    local ft = { "kotlin" }
-    if kotlin_cfg.attach_to_java then
-        table.insert(ft, "java")
-    end
-    return ft
-end
-
 ---@param cfg table Full plugin config
 function M.start(cfg)
     if initialised or vim.b.droid_lsp_disabled then
@@ -209,7 +207,7 @@ function M.start(cfg)
     local kotlin_cfg = cfg.lsp.kotlin or {}
 
     -- Merge per-project overrides
-    local overrides = project_overrides()
+    local overrides = M._project_overrides()
     if next(overrides) then
         kotlin_cfg = vim.tbl_deep_extend("force", kotlin_cfg, overrides)
     end
@@ -271,7 +269,7 @@ function M.start(cfg)
 
     vim.lsp.config("kotlin_ls", {
         cmd = cmd,
-        filetypes = M._filetypes(kotlin_cfg),
+        filetypes = { "kotlin" },
         root_markers = root_markers,
         settings = settings,
         init_options = init_opts,

@@ -1,5 +1,5 @@
 --- LSP orchestrator for droid.nvim
---- Manages Kotlin, Java, and Groovy LSP servers for Android development
+--- Manages Kotlin and Groovy LSP servers for Android development
 
 local config = require "droid.config"
 
@@ -13,10 +13,6 @@ local function get_kotlin()
     return require "droid.lsp.kotlin"
 end
 
-local function get_java()
-    return require "droid.lsp.java"
-end
-
 local function get_groovy()
     return require "droid.lsp.groovy"
 end
@@ -28,7 +24,6 @@ end
 --- Stop all LSP servers
 function M.stop()
     get_kotlin().stop()
-    get_java().stop()
     get_groovy().stop()
 end
 
@@ -37,18 +32,11 @@ function M.clean_workspace()
     M.stop()
 
     local kotlin = get_kotlin()
-    local java = get_java()
 
     -- Clean Kotlin workspace
     local kotlin_dir = kotlin.workspace_cache_dir()
     if vim.fn.isdirectory(kotlin_dir) == 1 then
         vim.fn.delete(kotlin_dir, "rf")
-    end
-
-    -- Clean Java workspace
-    local java_dir = java.workspace_cache_dir()
-    if vim.fn.isdirectory(java_dir) == 1 then
-        vim.fn.delete(java_dir, "rf")
     end
 
     vim.notify("droid.nvim: All workspace caches removed", vim.log.levels.INFO)
@@ -62,9 +50,6 @@ function M.restart()
         if cfg.lsp.kotlin and cfg.lsp.kotlin.enabled ~= false then
             get_kotlin().restart()
         end
-        if cfg.lsp.java and cfg.lsp.java.enabled ~= false then
-            get_java().restart()
-        end
         if cfg.lsp.groovy and cfg.lsp.groovy.enabled ~= false then
             get_groovy().restart()
         end
@@ -77,17 +62,8 @@ end
 function M.get_clients(filter)
     local clients = {}
     vim.list_extend(clients, get_kotlin().get_clients(filter))
-    vim.list_extend(clients, get_java().get_clients(filter))
     vim.list_extend(clients, get_groovy().get_clients(filter))
     return clients
-end
-
----------------------------------------------------------------------------
--- Backward compatibility (delegate to kotlin module for old API)
----------------------------------------------------------------------------
-
-function M.workspace_cache_dir()
-    return get_kotlin().workspace_cache_dir()
 end
 
 ---------------------------------------------------------------------------
@@ -116,10 +92,9 @@ function M.setup()
 
     -- Setup each LSP module
     get_kotlin().setup(cfg)
-    get_java().setup(cfg)
     get_groovy().setup(cfg)
 
-    -- Setup shared decompiler (for both Kotlin and Java)
+    -- Setup shared decompiler (jar:// and jrt:// for kotlin_ls)
     local decompiler = require "droid.lsp.shared.decompiler"
     decompiler.setup()
 

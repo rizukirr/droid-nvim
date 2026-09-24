@@ -65,7 +65,7 @@ function M.setup_commands()
 
     vim.api.nvim_create_user_command("DroidTask", function(opts)
         guarded("DroidTask", function(done)
-            gradle.task(opts.fargs[1], table.concat(vim.list_slice(opts.fargs, 2), " "), done)
+            gradle.task(opts.fargs[1], vim.list_slice(opts.fargs, 2), done)
         end)
     end, { nargs = "+", complete = "shellcmd" })
 
@@ -86,7 +86,6 @@ function M.setup_commands()
     end, {})
 
     vim.api.nvim_create_user_command("DroidLogcatStop", function()
-        clear_active()
         logcat.stop()
     end, {})
 

@@ -1,37 +1,16 @@
 --- Shared decompiler for droid.nvim LSPs
---- Handles jar:// and jrt:// protocol for both Kotlin and Java LSPs
+--- Handles jar:// and jrt:// protocol for the Kotlin LSP
 
 local M = {}
 
 --- URI schemes that LSPs can decompile
 M.schemes = { "jar", "jrt" }
 
---- Get an LSP client that supports decompilation for the given buffer
+--- Get the kotlin_ls client attached to the given buffer, if any
 ---@param bufnr number
----@return vim.lsp.Client|nil client
----@return string|nil lsp_name
+---@return vim.lsp.Client|nil
 local function get_decompile_client(bufnr)
-    -- Try kotlin_ls first (has good decompile support)
-    local kotlin_clients = vim.lsp.get_clients { name = "kotlin_ls", bufnr = bufnr }
-    if #kotlin_clients > 0 then
-        return kotlin_clients[1], "kotlin_ls"
-    end
-
-    -- Try jdtls (also supports decompilation)
-    local java_clients = vim.lsp.get_clients { name = "jdtls", bufnr = bufnr }
-    if #java_clients > 0 then
-        return java_clients[1], "jdtls"
-    end
-
-    -- Try any attached LSP that might support decompilation
-    local all_clients = vim.lsp.get_clients { bufnr = bufnr }
-    for _, client in ipairs(all_clients) do
-        if client.name == "kotlin_ls" or client.name == "jdtls" then
-            return client, client.name
-        end
-    end
-
-    return nil, nil
+    return vim.lsp.get_clients({ name = "kotlin_ls", bufnr = bufnr })[1]
 end
 
 --- Called from a BufReadCmd autocmd. Asks the appropriate LSP to decompile the URI
@@ -45,9 +24,9 @@ function M.handle(uri)
 
     local function poll()
         attempts = attempts + 1
-        local client, lsp_name = get_decompile_client(buf)
+        local client = get_decompile_client(buf)
         if client then
-            M._decompile(buf, uri, client, lsp_name)
+            M._decompile(buf, uri, client)
             return
         end
         if attempts >= limit then
@@ -64,15 +43,8 @@ end
 ---@param buf number
 ---@param uri string
 ---@param client vim.lsp.Client
----@param lsp_name string
-function M._decompile(buf, uri, client, lsp_name)
-    -- Different LSPs use different command names
-    local cmd_name = "decompile"
-    if lsp_name == "jdtls" then
-        cmd_name = "java.decompile"
-    end
-
-    client:request("workspace/executeCommand", { command = cmd_name, arguments = { uri } }, function(err, result)
+function M._decompile(buf, uri, client)
+    client:request("workspace/executeCommand", { command = "decompile", arguments = { uri } }, function(err, result)
         vim.schedule(function()
             if err or not result or result == "" then
                 vim.notify(
@@ -85,7 +57,7 @@ function M._decompile(buf, uri, client, lsp_name)
                 return
             end
 
-            -- JetBrains kotlin-lsp returns {code, language}; jdtls and legacy return plain string
+            -- JetBrains kotlin-lsp returns {code, language}; legacy servers return a plain string
             local code = type(result) == "table" and result.code or result
             local lang = type(result) == "table" and result.language or nil
 

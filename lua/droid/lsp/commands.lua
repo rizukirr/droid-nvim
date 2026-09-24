@@ -1,5 +1,5 @@
 --- LSP commands for droid.nvim
---- Provides user commands for Kotlin and Java LSP operations
+--- Provides user commands for Kotlin and Groovy LSP operations
 
 local client = require "droid.lsp.client"
 
@@ -14,9 +14,6 @@ local function get_buffer_client()
     if ft == "kotlin" then
         local c = client.kotlin { bufnr = 0 }
         return c, c and "kotlin_ls" or nil
-    elseif ft == "java" then
-        local c = client.java { bufnr = 0 }
-        return c, c and "jdtls" or nil
     elseif ft == "groovy" then
         local c = client.groovy { bufnr = 0 }
         return c, c and "groovy_ls" or nil
@@ -52,7 +49,7 @@ end
 function M.setup()
     local cmd = vim.api.nvim_create_user_command
 
-    -- Organize Imports (Kotlin and Java)
+    -- Organize Imports (Kotlin)
     cmd("DroidImports", function()
         local c, name = need_client()
         if not c then
@@ -61,14 +58,6 @@ function M.setup()
 
         if name == "kotlin_ls" then
             client.run_command_on("kotlin_ls", "kotlin.organize.imports", { vim.uri_from_bufnr(0) }, function(err)
-                if err then
-                    vim.schedule(function()
-                        vim.notify("Organize imports: " .. tostring(err), vim.log.levels.ERROR)
-                    end)
-                end
-            end)
-        elseif name == "jdtls" then
-            client.run_command_on("jdtls", "java.edit.organizeImports", { vim.uri_from_bufnr(0) }, function(err)
                 if err then
                     vim.schedule(function()
                         vim.notify("Organize imports: " .. tostring(err), vim.log.levels.ERROR)

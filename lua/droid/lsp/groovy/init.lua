@@ -70,7 +70,7 @@ function M.start(cfg)
         cmd = { lsp_info.path }
     else
         -- Using Mason or custom installation
-        local java = jre.find_java(nil, cfg.lsp.jre_path)
+        local java = jre.find_java(cfg.lsp.jre_path)
         if not java then
             vim.notify("droid.nvim: Java not found - install Java 11+ or set lsp.jre_path", vim.log.levels.ERROR)
             return

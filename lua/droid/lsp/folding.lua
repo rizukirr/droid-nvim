@@ -1,5 +1,5 @@
 --- LSP-driven folds for droid.nvim buffers.
---- kotlin-lsp, jdtls and groovy-language-server all answer
+--- kotlin-lsp and groovy-language-server both answer
 --- `textDocument/foldingRange`, so folds follow the syntax tree instead of
 --- indentation. Folds start open: the structure is there to fold when you ask
 --- for it, not something the plugin applies to a file you just opened.

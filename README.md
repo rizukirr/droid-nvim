@@ -7,7 +7,7 @@ Android development workflow for Neovim. Build, run, and debug Android apps with
 - Neovim 0.11+
 - Android SDK with `adb` in PATH
 - `gradlew` in project root
-- Java 17+ (for jdtls) or Java 21+ (for Kotlin LSP)
+- Java 21+ (for Kotlin LSP)
 - [scrcpy](https://github.com/Genymobile/scrcpy) (optional, for device mirroring)
 - [`android` CLI](https://developer.android.com/tools/agents/android-cli) (optional; unlocks `:DroidScreenshot`, `:DroidDocs`, and faster emulator/deploy paths via `prefer_for`)
 
@@ -43,23 +43,23 @@ setx PATH "%ANDROID_HOME%\emulator;%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\
 -- lazy.nvim (recommended: pin to a specific version)
 {
   "rizukirr/droid-nvim",
-  ft = { "kotlin", "java", "groovy", "xml" },
+  ft = { "kotlin", "groovy", "xml" },
   opts = {},
 }
 ```
 
 droid-nvim is dependency-free. Two optional plugins improve the experience:
 
-- **`mason-org/mason.nvim`** — recommended, so droid can auto-install the Kotlin,
-  Java, and Groovy language servers. Without it, put the servers on your `$PATH`
+- **`mason-org/mason.nvim`** — recommended, so droid can auto-install the Kotlin
+  and Groovy language servers. Without it, put the servers on your `$PATH`
   or set `$KOTLIN_LSP_DIR`.
 - **`nvim-treesitter/nvim-treesitter`** — optional; richer syntax highlighting and
   more accurate `:DroidKdoc` signature parsing. Install the parsers with
-  `:TSInstall kotlin java groovy`. Without it, droid falls back to Neovim's
-  bundled `kotlin`/`java`/`groovy` syntax and a regex parser.
+  `:TSInstall kotlin groovy`. Without it, droid falls back to Neovim's
+  bundled `kotlin`/`groovy` syntax and a regex parser.
 
 > [!Important]
-> droid-nvim manages Kotlin, Java, and Groovy LSPs internally. If you have other plugins configuring these LSPs (e.g., nvim-lspconfig, nvim-java), consider disabling them to avoid conflicts.
+> droid-nvim manages the Kotlin and Groovy LSPs internally. If you have other plugins configuring these LSPs (e.g., nvim-lspconfig), consider disabling them to avoid conflicts.
 
 ### Selection UI (optional)
 
@@ -124,18 +124,6 @@ require("droid").setup({
             },
         },
 
-        -- Java LSP (jdtls)
-        java = {
-            enabled = true,
-            jvm_args = {},
-            root_markers = nil,            -- defaults: gradlew, settings.gradle, AndroidManifest.xml
-            suppress_diagnostics = {},
-            inlay_hints = {
-                enabled = true,
-                parameters = true,
-            },
-        },
-
         -- Groovy LSP (groovy-language-server)
         groovy = {
             enabled = true,
@@ -170,7 +158,6 @@ droid.nvim provides complete LSP support for Android development:
 | Language | LSP Server | Auto-Install | Min Java |
 | -------- | ---------- | ------------ | -------- |
 | Kotlin   | kotlin-lsp | Yes (Mason)  | 21+      |
-| Java     | jdtls      | Yes (Mason)  | 17+      |
 | Groovy   | groovy-language-server | Yes (Mason) | 11+ |
 
 Each LSP starts lazily when you first open a file of that type. If not installed, droid.nvim will auto-install it via Mason.
@@ -180,8 +167,8 @@ Each LSP starts lazily when you first open a file of that type. If not installed
 For each LSP, droid.nvim searches in this order:
 
 1. **Mason** — `~/.local/share/nvim/mason/packages/{lsp-name}/`
-2. **Environment variable** — `$KOTLIN_LSP_DIR`, `$JDTLS_DIR`, or `$GROOVY_LSP_DIR`
-3. **System PATH** — `kotlin-lsp`, `jdtls`, or `groovy-language-server`
+2. **Environment variable** — `$KOTLIN_LSP_DIR` or `$GROOVY_LSP_DIR`
+3. **System PATH** — `kotlin-lsp` or `groovy-language-server`
 4. **Auto-install via Mason** — If not found, automatically installs
 
 Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`. (kotlin-lsp is exempt — its native launcher ships a bundled JBR.)
@@ -202,7 +189,6 @@ Disable specific LSP:
 require("droid").setup({
     lsp = {
         kotlin = { enabled = true },
-        java = { enabled = false },   -- Disable Java LSP
         groovy = { enabled = false }, -- Disable Groovy LSP
     },
 })
@@ -226,17 +212,16 @@ return {
 }
 ```
 
-#### Kotlin project sync & cross-language
+The file is Lua, so droid asks before running it, through the same trust prompt Neovim uses for 'exrc'. Answer "allow" to trust it. After you edit it, Neovim asks again.
+
+#### Kotlin project sync
 
 ```lua
 lsp = {
-  folding = true,          -- fold Kotlin, Java and Groovy buffers by the
+  folding = true,          -- fold Kotlin and Groovy buffers by the
                            -- server's foldingRange instead of indentation.
                            -- Folds start open
   kotlin = {
-    attach_to_java = false, -- attach kotlin_ls to Java buffers too (keeps Kotlin
-                            -- cross-language analysis fresh; note: doubles LSP
-                            -- providers with jdtls on Java files)
     auto_reload = true,     -- reload the LSP workspace when a build file is saved
   },
 }
@@ -268,7 +253,7 @@ For nvim-tree or neo-tree, [nvim-lsp-file-operations](https://github.com/antosha
 
 #### Decompilation
 
-Navigating to a class from a dependency (e.g., go-to-definition on a library symbol) automatically decompiles the `.class` file via `jar://` and `jrt://` protocol handlers. Works with both Kotlin and Java LSPs.
+Navigating to a class from a dependency (e.g., go-to-definition on a library symbol) automatically decompiles the `.class` file via `jar://` and `jrt://` protocol handlers.
 
 #### Debugging (optional, requires nvim-dap)
 
@@ -409,11 +394,11 @@ Combine filters: `:DroidLogcatFilter tag=MyTag log_level=d`
 
 ### LSP Commands
 
-These commands work in `.kt`, `.java`, and `.groovy` buffers with their respective LSP attached.
+These commands work in `.kt` and `.groovy` buffers with their respective LSP attached.
 
 | Command | Description |
 | --- | --- |
-| `:DroidImports` | Organize imports (Kotlin & Java) |
+| `:DroidImports` | Organize imports (Kotlin) |
 | `:DroidFormat` | Format buffer, or the selected lines in visual mode |
 | `:DroidSymbols` | Document symbols (opens location list - navigate with `:lnext`, `:lprev`, `:lfirst`, `:llast`) |
 | `:DroidWorkspaceSymbols` | Workspace symbol search (opens location list - navigate with `:lnext`, `:lprev`) |
@@ -491,7 +476,6 @@ The LSP successfully detects the Gradle project structure but does not build a c
 - Use Telescope or grep for finding symbol definitions: `:Telescope live_grep` or `:Telescope grep_string`
 - Use `:DroidReferences` for same-file references (opens quickfix list)
 - Consider using Android Studio for complex cross-file navigation tasks
-- Java LSP (jdtls) has better Android Gradle support and cross-file navigation works reliably
 
 **Note:** This limitation is specific to Kotlin LSP with Android Gradle projects. Pure JVM Kotlin projects may have better support. The JetBrains Kotlin LSP README states: "currently, only JVM-only Kotlin Gradle projects are supported out-of-the box."
 

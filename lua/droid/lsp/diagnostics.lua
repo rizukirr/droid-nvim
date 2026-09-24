@@ -14,12 +14,7 @@ local stored = {}
 ---@return table<string|number, true>|nil
 local function get_suppressed_codes(ft)
     local cfg = config.get()
-    local lang_cfg
-    if ft == "kotlin" then
-        lang_cfg = cfg.lsp.kotlin
-    elseif ft == "java" then
-        lang_cfg = cfg.lsp.java
-    end
+    local lang_cfg = ft == "kotlin" and cfg.lsp.kotlin or nil
     if not lang_cfg then
         return nil
     end
@@ -49,7 +44,7 @@ end
 ---@return table<string|number, string[]>|nil
 local function get_annotation_rules(ft)
     local cfg = config.get()
-    local lang_cfg = ft == "kotlin" and cfg.lsp.kotlin or ft == "java" and cfg.lsp.java or nil
+    local lang_cfg = ft == "kotlin" and cfg.lsp.kotlin or nil
     local rules = lang_cfg and lang_cfg.suppress_when_annotated
     if not rules or vim.tbl_isempty(rules) then
         return nil
@@ -147,7 +142,7 @@ function M.setup()
         if vim.api.nvim_buf_is_valid(bufnr) then
             ft = vim.bo[bufnr].filetype
         end
-        if ft == "kotlin" or ft == "java" or ft == "groovy" then
+        if ft == "kotlin" or ft == "groovy" then
             -- Deep copy and store original diagnostics
             if not stored[bufnr] then
                 stored[bufnr] = {}
