@@ -24,6 +24,7 @@ function M.start_spinner(message)
 
     if M.spinner_timer then
         M.spinner_timer:stop()
+        M.spinner_timer:close()
     end
 
     -- Clear any lingering cmdline messages (e.g. from vim.ui.select's
@@ -31,11 +32,17 @@ function M.start_spinner(message)
     -- cmdheight and trigger the hit-enter prompt every tick.
     pcall(vim.cmd, "redraw")
 
-    M.spinner_timer = vim.loop.new_timer()
-    M.spinner_timer:start(
+    local timer = vim.loop.new_timer()
+    M.spinner_timer = timer
+    timer:start(
         0,
         100,
         vim.schedule_wrap(function()
+            -- A tick can already be queued on the event loop when stop_spinner
+            -- clears M.spinner_timer; drop it instead of echoing after the stop.
+            if M.spinner_timer ~= timer then
+                return
+            end
             local spinner_char = M.spinner_chars[M.spinner_index]
             M.spinner_index = (M.spinner_index % #M.spinner_chars) + 1
             vim.api.nvim_echo({ { fit(M.current_message) .. " " .. spinner_char, "MoreMsg" } }, false, {})
@@ -46,6 +53,7 @@ end
 function M.stop_spinner()
     if M.spinner_timer then
         M.spinner_timer:stop()
+        M.spinner_timer:close()
         M.spinner_timer = nil
     end
     vim.api.nvim_echo({ { "", "" } }, false, {})
