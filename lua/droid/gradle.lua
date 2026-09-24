@@ -23,7 +23,7 @@ function M.find_apks_for_variant(cwd, variant)
     local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "**", "*.apk")
     local matches = {}
     for _, apk in ipairs(vim.fn.glob(pattern, false, true)) do
-        local rel = apk:match("/apk/(.+)/[^/]+$")
+        local rel = apk:match "/apk/(.+)/[^/]+$"
         if rel then
             local dir = rel:gsub("/", ""):lower()
             if dir == lower or (dir:sub(-#lower) == lower and #dir > #lower) then
