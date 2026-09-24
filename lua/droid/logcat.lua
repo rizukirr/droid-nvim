@@ -4,7 +4,6 @@ local buffer = require "droid.buffer"
 
 local M = {}
 
-M.auto_scroll = true
 M.current_filters = nil
 M.current_device_id = nil
 M.current_adb = nil
@@ -113,6 +112,13 @@ local function filters_equivalent(current, new)
     return true
 end
 
+--- The config filters with `overrides` laid over them.
+---@param overrides? table
+---@return table
+local function merged_filters(overrides)
+    return vim.tbl_extend("force", {}, config.get().logcat.filters or {}, overrides or {})
+end
+
 function M.apply_filters(user_filters, adb, device_id)
     -- If device info is provided, use it directly (skip device selection)
     if adb and device_id then
@@ -122,22 +128,7 @@ function M.apply_filters(user_filters, adb, device_id)
 
     -- If logcat is already running, apply filters to current session
     if M.is_running() and M.current_adb and M.current_device_id then
-        -- Calculate what the new filters would be (same logic as in M.start)
-        local cfg = config.get()
-        local base_filters = cfg.logcat.filters or {}
-        local new_filters = {}
-
-        -- Start with user's config as base
-        for key, config_value in pairs(base_filters) do
-            new_filters[key] = config_value
-        end
-
-        -- Apply override filters if provided
-        if user_filters then
-            for key, override_value in pairs(user_filters) do
-                new_filters[key] = override_value
-            end
-        end
+        local new_filters = merged_filters(user_filters)
 
         -- Check if filters would actually change the logcat command
         if filters_equivalent(M.current_filters, new_filters) then
@@ -159,39 +150,8 @@ function M.apply_filters(user_filters, adb, device_id)
             return
         end
 
-        android.get_running_devices(tools.adb, function(devices)
-            if #devices == 0 then
-                vim.notify("No devices or emulators available", vim.log.levels.ERROR)
-                return
-            end
-
-            -- Auto-select if only one device and config allows it
-            local cfg = config.get()
-            if #devices == 1 and cfg.android.auto_select_single_target then
-                M.start(tools.adb, devices[1].id, nil, user_filters)
-                return
-            end
-
-            -- Multiple devices, show selection
-            local formatted_devices = {}
-            for _, device in ipairs(devices) do
-                table.insert(formatted_devices, {
-                    id = device.id,
-                    name = "Device: " .. device.name,
-                    display_name = device.name,
-                })
-            end
-
-            vim.ui.select(formatted_devices, {
-                prompt = "Select device for logcat",
-                format_item = function(item)
-                    return item.name
-                end,
-            }, function(choice)
-                if choice then
-                    M.start(tools.adb, choice.id, nil, user_filters)
-                end
-            end)
+        android.pick_running_device(tools.adb, "Select device for logcat", function(device_id)
+            M.start(tools.adb, device_id, nil, user_filters)
         end)
     end
 end
@@ -204,20 +164,7 @@ end
 --   override_filters: optional filters to override config (temporary)
 function M.start(adb, device_id, mode, override_filters)
     local cfg = config.get()
-    local base_filters = cfg.logcat.filters or {}
-    local active_filters = {}
-
-    -- Start with user's config as base
-    for key, config_value in pairs(base_filters) do
-        active_filters[key] = config_value
-    end
-
-    -- Apply override filters if provided (temporary override)
-    if override_filters then
-        for key, override_value in pairs(override_filters) do
-            active_filters[key] = override_value
-        end
-    end
+    local active_filters = merged_filters(override_filters)
 
     -- Enhanced reuse logic with ownership checking
     local buf_info = buffer.get_buffer_info()
@@ -306,7 +253,7 @@ function M.start(adb, device_id, mode, override_filters)
                             -- Restore original modifiable state
                             vim.bo[buf_info.buffer_id].modifiable = was_modifiable
 
-                            if M.auto_scroll and buffer.is_valid() then
+                            if buffer.is_valid() then
                                 buffer.scroll_to_bottom()
                             end
                         end
