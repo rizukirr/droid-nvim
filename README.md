@@ -212,6 +212,8 @@ return {
 }
 ```
 
+The file is Lua, so droid asks before running it, through the same trust prompt Neovim uses for 'exrc'. Answer "allow" to trust it. After you edit it, Neovim asks again.
+
 #### Kotlin project sync
 
 ```lua
