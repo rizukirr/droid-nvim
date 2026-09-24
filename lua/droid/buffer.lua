@@ -168,8 +168,11 @@ function M.attach_cleanup()
         end,
     })
 
-    -- Handle Neovim exit
+    -- Handle Neovim exit. A fresh augroup with clear = true each call keeps
+    -- this at one autocmd no matter how many buffers attach_cleanup has seen.
+    local group = vim.api.nvim_create_augroup("droid_buffer_cleanup", { clear = true })
     vim.api.nvim_create_autocmd("VimLeavePre", {
+        group = group,
         callback = function()
             M.close()
         end,
@@ -190,7 +193,9 @@ function M.close()
     M.stop_current_job()
 
     if M.window_id and vim.api.nvim_win_is_valid(M.window_id) then
-        vim.api.nvim_win_close(M.window_id, true)
+        -- Closing the last window in the last tab raises E444; that is not
+        -- an error worth surfacing here, the buffer gets wiped below anyway.
+        pcall(vim.api.nvim_win_close, M.window_id, true)
     end
 
     if M.buffer_id and vim.api.nvim_buf_is_valid(M.buffer_id) then
