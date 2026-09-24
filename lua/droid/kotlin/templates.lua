@@ -57,29 +57,34 @@ end
 local function offer(bufnr, client)
     local names, map = M.list(require("droid.config").get().editor.templates)
     vim.ui.select(names, { prompt = "Kotlin file template" }, function(choice)
-            if not choice then
-                return
-            end
-            local uri = vim.uri_from_bufnr(bufnr)
-            client:request("workspace/executeCommand", {
-                command = "interpolateFileTemplate",
-                arguments = { uri, map[choice] },
-            }, function(err, result)
-                vim.schedule(function()
-                    if err or type(result) ~= "string" then
-                        vim.notify(
-                            "droid.nvim: file template unavailable: " .. tostring(err),
-                            vim.log.levels.WARN
-                        )
-                        return
+        if not choice then
+            return
+        end
+        local uri = vim.uri_from_bufnr(bufnr)
+        client:request("workspace/executeCommand", {
+            command = "interpolateFileTemplate",
+            arguments = { uri, map[choice] },
+        }, function(err, result)
+            vim.schedule(function()
+                if err or type(result) ~= "string" then
+                    vim.notify("droid.nvim: file template unavailable: " .. tostring(err), vim.log.levels.WARN)
+                    return
+                end
+                -- The user may have typed into the buffer while the request was
+                -- in flight; never clobber that with the (now stale) template.
+                if not still_empty(bufnr) then
+                    return
+                end
+                local text, cursor = M.split_caret(result)
+                vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(text, "\n", { plain = true }))
+                if cursor then
+                    local winid = vim.fn.bufwinid(bufnr)
+                    if winid ~= -1 then
+                        pcall(vim.api.nvim_win_set_cursor, winid, { cursor[1] + 1, cursor[2] })
                     end
-                    local text, cursor = M.split_caret(result)
-                    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(text, "\n", { plain = true }))
-                    if cursor then
-                        pcall(vim.api.nvim_win_set_cursor, 0, { cursor[1] + 1, cursor[2] })
-                    end
-                end)
-            end, bufnr)
+                end
+            end)
+        end, bufnr)
     end)
 end
 
