@@ -105,7 +105,9 @@ function M.setup_buffer(type)
 
     -- Common buffer settings
     vim.bo[M.buffer_id].buflisted = false
-    vim.bo[M.buffer_id].bufhidden = "wipe"
+    -- "hide" keeps the buffer (and any job attached to it) alive when its
+    -- window closes; only BufDelete/BufWipeout should stop the job.
+    vim.bo[M.buffer_id].bufhidden = "hide"
 end
 
 -- Open window according to display mode

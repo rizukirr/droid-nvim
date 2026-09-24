@@ -100,7 +100,14 @@ local function run_gradle_task(cwd, gradlew, task, args, callback)
                 buffer.release_job(job_id)
 
                 vim.schedule(function()
-                    if not buffer.is_valid() then
+                    -- The buffer (and its job) survives its window closing
+                    -- (bufhidden = "hide"); only reopen a window for it when
+                    -- the buffer itself is gone, or it has none shown.
+                    if buffer.buffer_id and vim.api.nvim_buf_is_valid(buffer.buffer_id) then
+                        if not buffer.is_valid() then
+                            buffer.open_window "horizontal"
+                        end
+                    else
                         buffer.get_or_create("gradle", "horizontal")
                     end
 
