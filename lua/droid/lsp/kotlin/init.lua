@@ -188,13 +188,6 @@ function M._init_options(kotlin_cfg)
     return { defaultSdk = kotlin_cfg.jdk_for_symbol_resolution }
 end
 
---- Filetypes kotlin_ls attaches to.
----@param _kotlin_cfg table
----@return string[]
-function M._filetypes(_kotlin_cfg)
-    return { "kotlin" }
-end
-
 ---@param cfg table Full plugin config
 function M.start(cfg)
     if initialised or vim.b.droid_lsp_disabled then
@@ -266,7 +259,7 @@ function M.start(cfg)
 
     vim.lsp.config("kotlin_ls", {
         cmd = cmd,
-        filetypes = M._filetypes(kotlin_cfg),
+        filetypes = { "kotlin" },
         root_markers = root_markers,
         settings = settings,
         init_options = init_opts,

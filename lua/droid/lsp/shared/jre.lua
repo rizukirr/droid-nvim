@@ -53,53 +53,24 @@ function M.check(java_bin, min_version, lsp_name)
     return true, nil
 end
 
---- Get the Java major version
----@param java_bin string
----@return number|nil
-function M.get_version(java_bin)
-    local ver = get_version(java_bin)
-    return ver
-end
-
---- Resolve candidate bundled JRE paths, accounting for macOS layout.
---- JetBrains kotlin-lsp standalone ships its runtime as `jbr/`; older
---- packages used `jre/`.
----@param pkg_dir string
----@return string[]
-function M.bundled_jre_dirs(pkg_dir)
-    local uv = vim.uv or vim.loop
-    if uv.os_uname().sysname == "Darwin" then
-        return { pkg_dir .. "/jre/Contents/Home", pkg_dir .. "/jbr/Contents/Home" }
-    end
-    return { pkg_dir .. "/jre", pkg_dir .. "/jbr" }
-end
-
 --- Locate a java binary for an LSP
---- Order: bundled (in LSP package) -> user config -> JAVA_HOME -> PATH
----@param pkg_dir string|nil LSP package directory (Mason or custom)
+--- Order: user config -> JAVA_HOME -> PATH
 ---@param cfg_jre_path string|nil User-configured JRE path from config
 ---@return string|nil java_binary
-function M.find_java(pkg_dir, cfg_jre_path)
+function M.find_java(cfg_jre_path)
     local candidates = {}
 
-    -- 1. Bundled JRE in LSP package
-    if pkg_dir then
-        for _, dir in ipairs(M.bundled_jre_dirs(pkg_dir)) do
-            table.insert(candidates, dir .. "/bin/java")
-        end
-    end
-
-    -- 2. User config jre_path
+    -- 1. User config jre_path
     if cfg_jre_path then
         table.insert(candidates, cfg_jre_path .. "/bin/java")
     end
 
-    -- 3. JAVA_HOME environment variable
+    -- 2. JAVA_HOME environment variable
     if vim.env.JAVA_HOME then
         table.insert(candidates, vim.env.JAVA_HOME .. "/bin/java")
     end
 
-    -- 4. System PATH
+    -- 3. System PATH
     table.insert(candidates, "java")
 
     return install.first_executable(candidates)

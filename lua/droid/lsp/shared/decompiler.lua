@@ -6,16 +6,11 @@ local M = {}
 --- URI schemes that LSPs can decompile
 M.schemes = { "jar", "jrt" }
 
---- Get an LSP client that supports decompilation for the given buffer
+--- Get the kotlin_ls client attached to the given buffer, if any
 ---@param bufnr number
----@return vim.lsp.Client|nil client
----@return string|nil lsp_name
+---@return vim.lsp.Client|nil
 local function get_decompile_client(bufnr)
-    local clients = vim.lsp.get_clients { name = "kotlin_ls", bufnr = bufnr }
-    if #clients > 0 then
-        return clients[1], "kotlin_ls"
-    end
-    return nil, nil
+    return vim.lsp.get_clients({ name = "kotlin_ls", bufnr = bufnr })[1]
 end
 
 --- Called from a BufReadCmd autocmd. Asks the appropriate LSP to decompile the URI
@@ -29,9 +24,9 @@ function M.handle(uri)
 
     local function poll()
         attempts = attempts + 1
-        local client, lsp_name = get_decompile_client(buf)
+        local client = get_decompile_client(buf)
         if client then
-            M._decompile(buf, uri, client, lsp_name)
+            M._decompile(buf, uri, client)
             return
         end
         if attempts >= limit then
@@ -48,11 +43,8 @@ end
 ---@param buf number
 ---@param uri string
 ---@param client vim.lsp.Client
----@param lsp_name string
-function M._decompile(buf, uri, client, lsp_name)
-    local cmd_name = "decompile"
-
-    client:request("workspace/executeCommand", { command = cmd_name, arguments = { uri } }, function(err, result)
+function M._decompile(buf, uri, client)
+    client:request("workspace/executeCommand", { command = "decompile", arguments = { uri } }, function(err, result)
         vim.schedule(function()
             if err or not result or result == "" then
                 vim.notify(
