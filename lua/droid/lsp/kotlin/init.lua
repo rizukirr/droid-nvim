@@ -367,7 +367,6 @@ function M.setup(cfg)
     vim.api.nvim_create_autocmd("FileType", {
         group = vim.api.nvim_create_augroup("DroidKotlinLsp", { clear = true }),
         pattern = "kotlin",
-        once = true,
         callback = function()
             M.start(cfg)
         end,

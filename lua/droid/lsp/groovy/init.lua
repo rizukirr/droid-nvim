@@ -162,7 +162,6 @@ function M.setup(cfg)
     vim.api.nvim_create_autocmd("FileType", {
         group = vim.api.nvim_create_augroup("DroidGroovyLsp", { clear = true }),
         pattern = "groovy",
-        once = true,
         callback = function()
             M.start(cfg)
         end,
