@@ -1,4 +1,3 @@
-local progress = require "droid.progress"
 local buffer = require "droid.buffer"
 
 local M = {}
@@ -72,7 +71,7 @@ end
 
 local function run_gradle_task(cwd, gradlew, task, args, callback)
     local cmd_args = { gradlew, task }
-    if args and args ~= '' then
+    if args and args ~= "" then
         table.insert(cmd_args, args)
     end
 
@@ -125,12 +124,10 @@ function M.select_variant()
         return
     end
 
-    progress.start_spinner "Discovering build variants"
+    vim.notify("Discovering build variants...", vim.log.levels.INFO)
 
     vim.system({ g.gradlew, "-q", "tasks", "--group=build" }, { cwd = g.cwd }, function(obj)
         vim.schedule(function()
-            progress.stop_spinner()
-
             if obj.code ~= 0 then
                 vim.notify("Failed to discover build variants", vim.log.levels.ERROR)
                 return
@@ -170,10 +167,7 @@ function M.sync(on_complete)
         return
     end
 
-    progress.start_spinner "Syncing dependencies"
-
     run_gradle_task(g.cwd, g.gradlew, "--refresh-dependencies", nil, function(success, exit_code)
-        progress.stop_spinner()
         if success then
             vim.notify("Dependencies synced successfully", vim.log.levels.INFO)
         else
@@ -194,10 +188,7 @@ function M.clean(on_complete)
         return
     end
 
-    progress.start_spinner "Cleaning project"
-
     run_gradle_task(g.cwd, g.gradlew, "clean", nil, function(success, exit_code)
-        progress.stop_spinner()
         if success then
             vim.notify("Project cleaned successfully", vim.log.levels.INFO)
         else
@@ -219,10 +210,8 @@ function M.build(on_complete)
     end
 
     local task = "assemble" .. M.selected_variant
-    progress.start_spinner("Building " .. M.selected_variant .. " APK")
 
     run_gradle_task(g.cwd, g.gradlew, task, nil, function(success, exit_code)
-        progress.stop_spinner()
         if success then
             vim.notify(M.selected_variant .. " APK built successfully", vim.log.levels.INFO)
         else
@@ -243,10 +232,7 @@ function M.task(task, args, on_complete)
         return
     end
 
-    progress.start_spinner("Running task: " .. task)
-
     run_gradle_task(g.cwd, g.gradlew, task, args, function(success, exit_code)
-        progress.stop_spinner()
         if success then
             vim.notify(string.format("Task '%s' completed successfully", task), vim.log.levels.INFO)
         else
@@ -265,7 +251,6 @@ local function run_install(g, task, ok_message, callback, step)
         cwd = g.cwd,
         on_exit = function(job_id, code)
             buffer.release_job(job_id)
-            progress.stop_spinner()
 
             local success = code == 0
             local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
@@ -293,12 +278,10 @@ function M.install(callback)
     end
 
     local task = "install" .. M.selected_variant
-    progress.start_spinner("Installing " .. M.selected_variant .. " APK")
 
     local buf = buffer.get_or_create("gradle", nil)
 
     if not buf then
-        progress.stop_spinner()
         vim.notify("Buffer is busy, install operation cancelled", vim.log.levels.WARN)
         if callback then
             vim.schedule(function()
@@ -326,11 +309,8 @@ function M.build_and_install(callback)
     local assemble_task = "assemble" .. M.selected_variant
     local install_task = "install" .. M.selected_variant
 
-    progress.start_spinner("Building " .. M.selected_variant .. " APK")
-
     run_gradle_task(g.cwd, g.gradlew, assemble_task, nil, function(build_success, build_code)
         if not build_success then
-            progress.stop_spinner()
             local message = "Build failed (exit code: " .. build_code .. ")"
             vim.notify(message, vim.log.levels.ERROR)
 
@@ -342,12 +322,9 @@ function M.build_and_install(callback)
             return
         end
 
-        progress.update_spinner_message("Installing " .. M.selected_variant .. " APK")
-
         local buf = buffer.get_or_create("gradle", nil)
 
         if not buf then
-            progress.stop_spinner()
             local message = "Buffer busy, install cancelled"
             vim.notify(message, vim.log.levels.ERROR)
             if callback then
