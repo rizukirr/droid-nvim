@@ -1,5 +1,4 @@
 local config = require "droid.config"
-local progress = require "droid.progress"
 
 local M = {}
 
@@ -338,8 +337,6 @@ function M.wait_for_device_ready(adb, known, callback)
     local device_found = false
     local current_device_id = nil
 
-    progress.update_spinner_message "Waiting for device to come online"
-
     timer:start(0, cfg.android.boot_check_interval_ms or 3000, function()
         local elapsed = vim.loop.now() - start_time
         local timeout = cfg.android.boot_complete_timeout_ms or 120000
@@ -348,7 +345,6 @@ function M.wait_for_device_ready(adb, known, callback)
             timer:stop()
             timer:close()
             vim.schedule(function()
-                progress.stop_spinner()
                 vim.notify("Timed out waiting for device to boot completely", vim.log.levels.ERROR)
                 callback(nil)
             end)
@@ -362,7 +358,6 @@ function M.wait_for_device_ready(adb, known, callback)
                     if not known[d.id] and d.id:match "^emulator%-" then
                         device_found = true
                         current_device_id = d.id
-                        progress.update_spinner_message "Device found, waiting for boot completion"
                         return
                     end
                 end
@@ -373,7 +368,6 @@ function M.wait_for_device_ready(adb, known, callback)
                 if is_ready then
                     timer:stop()
                     timer:close()
-                    progress.update_spinner_message "Device ready for installation"
                     callback(current_device_id)
                 end
             end)

@@ -2,7 +2,6 @@ local config = require "droid.config"
 local gradle = require "droid.gradle"
 local android = require "droid.android"
 local logcat = require "droid.logcat"
-local progress = require "droid.progress"
 
 local M = {}
 
@@ -135,7 +134,7 @@ local function start_avd(tools, avd, on_ready)
             known[d.id] = true
         end
 
-        progress.start_spinner "Starting emulator"
+        vim.notify("Starting emulator...", vim.log.levels.INFO)
         local cli = require "droid.backends.android_cli"
         if cli.prefers "emulator" then
             cli.start_emulator(avd)
@@ -144,7 +143,6 @@ local function start_avd(tools, avd, on_ready)
         end
 
         android.wait_for_device_ready(tools.adb, known, function(device_id)
-            progress.stop_spinner()
             if not device_id then
                 vim.notify("Failed to start emulator or device not ready", vim.log.levels.ERROR)
             end
