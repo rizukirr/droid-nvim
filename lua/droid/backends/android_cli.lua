@@ -160,11 +160,12 @@ function M.list_avds(callback)
     end)
 end
 
---- Launch an emulator via `android emulator start <name>`.
---- Long-running: the callback only fires when the emulator process exits,
---- which is typically when the user shuts it down.
+--- Launch an emulator via `android emulator start <name>`. The command
+--- returns once the emulator has booted. On a nonzero exit the failure is
+--- notified and `on_fail(msg)` runs with the CLI's stderr.
 ---@param name string AVD name
-function M.start_emulator(name)
+---@param on_fail fun(msg: string)|nil
+function M.start_emulator(name, on_fail)
     local exe = resolve_binary()
     if not exe then
         return
@@ -173,6 +174,9 @@ function M.start_emulator(name)
         if result.code ~= 0 then
             vim.schedule(function()
                 notify_failure(("emulator start %s"):format(name), result)
+                if on_fail then
+                    on_fail(vim.trim(result.stderr or ""))
+                end
             end)
         end
     end)

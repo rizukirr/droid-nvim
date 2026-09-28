@@ -174,3 +174,19 @@ check("wait_for_device_ready calls back once when a check outlasts the interval"
     cfg.android.boot_check_interval_ms = 3000
     assert(#calls == 1 and calls[1] == "emulator-5556", vim.inspect(calls))
 end)
+
+check("a failed emulator start ends the wait and shows its error", function()
+    vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone"
+    vim.env.FAKE_AVD_NAME = "Medium_Phone"
+    notes = {}
+    local got
+    require("droid.actions")._start_avd({ adb = adb, emulator = emulator }, "Medium_Tablet", function(id)
+        got = id or false
+    end)
+    vim.wait(5000, function()
+        return got ~= nil
+    end)
+    assert(got == false, tostring(got))
+    local shown = table.concat(notes, "\n")
+    assert(shown:find("FATAL", 1, true), shown)
+end)

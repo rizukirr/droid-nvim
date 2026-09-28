@@ -511,9 +511,36 @@ function M.choose_target(adb, emulator, callback)
     end)
 end
 
-function M.start_emulator(emulator, avd)
+--- Start `avd` detached. When the emulator exits nonzero, `on_fail(msg)`
+--- gets its last FATAL or ERROR line, else its last non-empty line.
+--- Only those two lines are kept, since a running emulator logs for hours.
+---@param emulator string
+---@param avd string
+---@param on_fail fun(msg: string)|nil
+function M.start_emulator(emulator, avd, on_fail)
     local cmd = M.build_emulator_command(emulator, { "-avd", avd })
-    return vim.fn.jobstart(cmd, { env = emulator_env() })
+    local last, telling
+    local function collect(_, data)
+        for _, line in ipairs(data) do
+            line = vim.trim(line)
+            if line ~= "" then
+                last = line
+                if line:find "FATAL" or line:find "ERROR" then
+                    telling = line
+                end
+            end
+        end
+    end
+    return vim.fn.jobstart(cmd, {
+        env = emulator_env(),
+        on_stdout = collect,
+        on_stderr = collect,
+        on_exit = vim.schedule_wrap(function(_, exit_code)
+            if exit_code ~= 0 and on_fail then
+                on_fail(telling or last or ("emulator exited with code " .. exit_code))
+            end
+        end),
+    })
 end
 
 function M.get_available_avds(emulator)
