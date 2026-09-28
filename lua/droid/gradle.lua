@@ -135,42 +135,103 @@ local function run_gradle_task(cwd, gradlew, task, args, callback)
     end)
 end
 
-function M.select_variant()
-    local g = find_gradlew()
-    if not g then
+-- Variant lists per project root, from `gradlew tasks --group=install`.
+local variant_cache = {}
+
+--- The project's real variants, read from Gradle's install task group:
+--- `buildable` from uninstall<Variant> (every variant) and `installable`
+--- from install<Variant> (unsigned release builds have none). Cached per
+--- project for the session.
+---@param g { gradlew: string, cwd: string }
+---@param callback fun(lists: { buildable: string[], installable: string[] }|nil)
+local function list_variants(g, callback)
+    if variant_cache[g.cwd] then
+        callback(variant_cache[g.cwd])
         return
     end
 
     vim.notify("Discovering build variants...", vim.log.levels.INFO)
 
-    vim.system({ g.gradlew, "-q", "tasks", "--group=build" }, { cwd = g.cwd }, function(obj)
+    vim.system({ g.gradlew, "-q", "tasks", "--group=install" }, { cwd = g.cwd, text = true }, function(obj)
         vim.schedule(function()
             if obj.code ~= 0 then
-                vim.notify("Failed to discover build variants", vim.log.levels.ERROR)
+                local last = ""
+                for line in (obj.stderr or ""):gmatch "[^\r\n]+" do
+                    if vim.trim(line) ~= "" then
+                        last = vim.trim(line)
+                    end
+                end
+                local detail = last ~= "" and (": " .. last) or ""
+                vim.notify("Failed to discover build variants" .. detail, vim.log.levels.ERROR)
+                callback(nil)
                 return
             end
 
-            local variants = {}
+            local lists = { buildable = {}, installable = {} }
+            local seen = { buildable = {}, installable = {} }
+            local function add(kind, name)
+                if name and name ~= "All" and not name:match "AndroidTest$" and not seen[kind][name] then
+                    seen[kind][name] = true
+                    table.insert(lists[kind], name)
+                end
+            end
             for line in (obj.stdout or ""):gmatch "[^\r\n]+" do
-                local variant = line:match "^assemble(%w+)%s+%-"
-                if variant then
-                    table.insert(variants, variant)
-                end
+                add("buildable", line:match "^uninstall(%w+)%s+%-")
+                add("installable", line:match "^install(%w+)%s+%-")
             end
 
-            if #variants == 0 then
-                vim.notify("No build variants found", vim.log.levels.WARN)
+            variant_cache[g.cwd] = lists
+            callback(lists)
+        end)
+    end)
+end
+
+--- Ask which variant a build command should use. `kind` "build" offers
+--- every variant, "install" only those with an install task. The last pick
+--- is listed first, and a lone variant is taken without asking.
+---@param kind "build"|"install"
+---@param callback fun(ok: boolean) true once `M.selected_variant` is set
+function M.pick_variant(kind, callback)
+    local g = find_gradlew()
+    if not g then
+        callback(false)
+        return
+    end
+
+    list_variants(g, function(lists)
+        if not lists then
+            callback(false)
+            return
+        end
+
+        local variants = vim.deepcopy(kind == "install" and lists.installable or lists.buildable)
+        if #variants == 0 then
+            local message = kind == "install" and "No installable variants found" or "No build variants found"
+            vim.notify(message, vim.log.levels.WARN)
+            callback(false)
+            return
+        end
+
+        if #variants == 1 then
+            M.selected_variant = variants[1]
+            callback(true)
+            return
+        end
+
+        for i, variant in ipairs(variants) do
+            if variant == M.selected_variant then
+                table.insert(variants, 1, table.remove(variants, i))
+                break
+            end
+        end
+
+        vim.ui.select(variants, { prompt = "Select build variant:" }, function(choice)
+            if not choice then
+                callback(false)
                 return
             end
-
-            vim.ui.select(variants, {
-                prompt = "Select build variant (current: " .. M.selected_variant .. "):",
-            }, function(choice)
-                if choice then
-                    M.selected_variant = choice
-                    vim.notify("Build variant: " .. choice, vim.log.levels.INFO)
-                end
-            end)
+            M.selected_variant = choice
+            callback(true)
         end)
     end)
 end
@@ -183,6 +244,9 @@ function M.sync(on_complete)
         end
         return
     end
+
+    -- Build files may have changed, so rediscover variants next time.
+    variant_cache[g.cwd] = nil
 
     run_gradle_task(g.cwd, g.gradlew, "--refresh-dependencies", nil, function(success, exit_code)
         if success then

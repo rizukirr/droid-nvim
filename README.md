@@ -327,9 +327,8 @@ type name interpolated by the language server. Add your own via
 | Command | Description |
 | --- | --- |
 | `:DroidRun` | Build, install, launch, and show logcat |
-| `:DroidBuild` | Build APK (uses selected variant) |
+| `:DroidBuild` | Pick a build variant, then build its APK |
 | `:DroidInstall` | Build and install APK |
-| `:DroidBuildVariant` | Pick build variant (Debug, Release, flavors) |
 
 ### Gradle
 
@@ -426,7 +425,6 @@ These commands work in `.kt` and `.groovy` buffers with their respective LSP att
 vim.keymap.set("n", "<leader>ar", ":DroidRun<CR>")
 vim.keymap.set("n", "<leader>ab", ":DroidBuild<CR>")
 vim.keymap.set("n", "<leader>ai", ":DroidInstall<CR>")
-vim.keymap.set("n", "<leader>av", ":DroidBuildVariant<CR>")
 
 -- Gradle
 vim.keymap.set("n", "<leader>as", ":DroidSync<CR>")

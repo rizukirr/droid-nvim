@@ -43,12 +43,14 @@ function M.setup_commands()
 
     vim.api.nvim_create_user_command("DroidBuild", function()
         guarded("DroidBuild", function(done)
-            gradle.build(done)
+            gradle.pick_variant("build", function(picked)
+                if picked then
+                    gradle.build(done)
+                else
+                    done()
+                end
+            end)
         end)
-    end, {})
-
-    vim.api.nvim_create_user_command("DroidBuildVariant", function()
-        gradle.select_variant()
     end, {})
 
     vim.api.nvim_create_user_command("DroidClean", function()

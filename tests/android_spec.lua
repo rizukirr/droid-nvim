@@ -3,6 +3,9 @@
 -- Fake `adb` and `emulator` scripts stand in for the SDK. Their output is
 -- steered through FAKE_* environment variables set before each check.
 
+-- Absolute, because checks chdir into fixture projects.
+vim.opt.runtimepath:prepend(vim.fn.getcwd())
+
 local root = vim.fn.tempname()
 local sdk = vim.fs.joinpath(root, "sdk")
 local adb = vim.fs.joinpath(sdk, "platform-tools", "adb")
@@ -47,6 +50,7 @@ vim.env.FAKE_STARTED = vim.fs.joinpath(root, "started")
 local gradle = require "droid.gradle"
 local android = require "droid.android"
 local actions = require "droid.actions"
+local commands = require "droid.commands"
 
 local function check(name, fn)
     fn()
@@ -189,4 +193,166 @@ check("a failed emulator start ends the wait and shows its error", function()
     assert(got == false, tostring(got))
     local shown = table.concat(notes, "\n")
     assert(shown:find("FATAL", 1, true), shown)
+end)
+
+-- A Gradle project whose gradlew appends each call to FAKE_GRADLE_LOG,
+-- prints FAKE_GRADLE_TASKS for `tasks --group=install`, and for install
+-- tasks prints FAKE_INSTALL_OUTPUT and exits FAKE_INSTALL_EXIT.
+local function gradle_project(name)
+    local dir = vim.fs.joinpath(root, name)
+    write(vim.fs.joinpath(dir, "gradlew"), {
+        "#!/bin/sh",
+        'echo "$*" >> "$FAKE_GRADLE_LOG"',
+        'case "$*" in',
+        '"-q tasks --group=install") printf "%b\\n" "$FAKE_GRADLE_TASKS" ;;',
+        'install*) printf "%s\\n" "$FAKE_INSTALL_OUTPUT"; exit "${FAKE_INSTALL_EXIT:-0}" ;;',
+        "esac",
+    }, true)
+    return dir
+end
+
+local gradle_log = vim.fs.joinpath(root, "gradle.log")
+vim.env.FAKE_GRADLE_LOG = gradle_log
+
+local function gradle_calls()
+    return vim.uv.fs_stat(gradle_log) and vim.fn.readfile(gradle_log) or {}
+end
+
+local function count(list, value)
+    local n = 0
+    for _, v in ipairs(list) do
+        if v == value then
+            n = n + 1
+        end
+    end
+    return n
+end
+
+local function notified(text)
+    return table.concat(notes, "\n"):find(text, 1, true) ~= nil
+end
+
+-- minbar-android's `tasks --group=install` output, as literal \n escapes for printf %b.
+local minbar_tasks = table.concat({
+    "Install tasks",
+    "-------------",
+    "installDemoDebug - Installs the Debug build for flavor Demo.",
+    "installDemoDebugAndroidTest - Installs the android (on device) tests for the DemoDebug build.",
+    "installProdDebug - Installs the Debug build for flavor Prod.",
+    "installProdDebugAndroidTest - Installs the android (on device) tests for the ProdDebug build.",
+    "uninstallAll - Uninstall all applications.",
+    "uninstallDemoDebug - Uninstalls the Debug build for flavor Demo.",
+    "uninstallDemoDebugAndroidTest - Uninstalls the android (on device) tests for the DemoDebug build.",
+    "uninstallDemoRelease - Uninstalls the Release build for flavor Demo.",
+    "uninstallProdDebug - Uninstalls the Debug build for flavor Prod.",
+    "uninstallProdDebugAndroidTest - Uninstalls the android (on device) tests for the ProdDebug build.",
+    "uninstallProdRelease - Uninstalls the Release build for flavor Prod.",
+}, "\\n")
+
+-- vim.ui.select stub: records each call and answers with answers[prompt],
+-- which is a value or a function of the items.
+local selects = {}
+local answers = {}
+vim.ui.select = function(items, opts, on_choice)
+    table.insert(selects, { prompt = opts.prompt, items = items })
+    local answer = answers[opts.prompt]
+    if type(answer) == "function" then
+        answer = answer(items)
+    end
+    on_choice(answer)
+end
+
+local function pick(kind)
+    local result
+    gradle.pick_variant(kind, function(ok)
+        result = ok
+    end)
+    vim.wait(5000, function()
+        return result ~= nil
+    end)
+    return result
+end
+
+local flavored_gradle = gradle_project "gradle-flavored"
+vim.fn.chdir(flavored_gradle)
+vim.env.FAKE_GRADLE_TASKS = minbar_tasks
+
+check("pick_variant offers every real variant for a build", function()
+    gradle.selected_variant = "Debug"
+    selects = {}
+    answers["Select build variant:"] = "DemoRelease"
+    assert(pick "build" == true)
+    assert(
+        vim.deep_equal(selects[1].items, { "DemoDebug", "DemoRelease", "ProdDebug", "ProdRelease" }),
+        vim.inspect(selects)
+    )
+    assert(gradle.selected_variant == "DemoRelease", gradle.selected_variant)
+end)
+
+check("pick_variant offers only installable variants for an install", function()
+    gradle.selected_variant = "Debug"
+    selects = {}
+    answers["Select build variant:"] = "ProdDebug"
+    assert(pick "install" == true)
+    assert(vim.deep_equal(selects[1].items, { "DemoDebug", "ProdDebug" }), vim.inspect(selects))
+end)
+
+check("pick_variant lists the last pick first", function()
+    selects = {}
+    answers["Select build variant:"] = "ProdDebug"
+    assert(pick "install" == true)
+    assert(selects[1].items[1] == "ProdDebug", vim.inspect(selects))
+end)
+
+check("pick_variant discovers variants once per project until sync", function()
+    local tasks_call = "-q tasks --group=install"
+    assert(count(gradle_calls(), tasks_call) == 1, vim.inspect(gradle_calls()))
+    local synced
+    gradle.sync(function()
+        synced = true
+    end)
+    vim.wait(5000, function()
+        return synced
+    end)
+    answers["Select build variant:"] = "ProdDebug"
+    assert(pick "install" == true)
+    assert(count(gradle_calls(), tasks_call) == 2, vim.inspect(gradle_calls()))
+end)
+
+check("pick_variant stops when the picker is cancelled", function()
+    answers["Select build variant:"] = nil
+    assert(pick "build" == false)
+end)
+
+check("pick_variant takes a single variant without asking", function()
+    vim.fn.chdir(gradle_project "gradle-single")
+    vim.env.FAKE_GRADLE_TASKS =
+        "installDebug - Installs the Debug build.\\nuninstallDebug - Uninstalls the Debug build."
+    gradle.selected_variant = "ProdDebug"
+    selects = {}
+    assert(pick "install" == true)
+    assert(#selects == 0, vim.inspect(selects))
+    assert(gradle.selected_variant == "Debug", gradle.selected_variant)
+end)
+
+check("pick_variant stops when nothing can be installed", function()
+    vim.fn.chdir(gradle_project "gradle-release-only")
+    vim.env.FAKE_GRADLE_TASKS = "uninstallRelease - Uninstalls the Release build."
+    notes = {}
+    assert(pick "install" == false)
+    assert(notified "No installable variants found", table.concat(notes, "\n"))
+end)
+
+check(":DroidBuild asks for a variant, then builds it", function()
+    vim.fn.chdir(flavored_gradle)
+    vim.env.FAKE_GRADLE_TASKS = minbar_tasks
+    commands.setup_commands()
+    assert(vim.fn.exists ":DroidBuildVariant" == 0, ":DroidBuildVariant still exists")
+    notes = {}
+    answers["Select build variant:"] = "ProdRelease"
+    vim.cmd "DroidBuild"
+    vim.wait(5000, function()
+        return notified "ProdRelease APK built successfully"
+    end)
+    assert(count(gradle_calls(), "assembleProdRelease") == 1, vim.inspect(gradle_calls()))
 end)
