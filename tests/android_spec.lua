@@ -106,3 +106,19 @@ check("find_main_activity ignores output without an activity", function()
     local main = android.find_main_activity(adb, "emulator-5554", "com.x")
     assert(main == "com.x/.Main", tostring(main))
 end)
+
+check("emulator tools run with config.android.android_avd_home", function()
+    local log = vim.fs.joinpath(root, "env.log")
+    vim.env.FAKE_ENV_LOG = log
+    local cfg = require("droid.config").get()
+    cfg.android.android_avd_home = "/tmp/droid-avd-test"
+    android.get_available_avds(emulator)
+    android.start_emulator(emulator, "Medium_Tablet")
+    vim.wait(5000, function()
+        return vim.uv.fs_stat(log) ~= nil and #vim.fn.readfile(log) >= 2
+    end)
+    cfg.android.android_avd_home = nil
+    vim.env.FAKE_ENV_LOG = nil
+    local lines = vim.uv.fs_stat(log) and vim.fn.readfile(log) or {}
+    assert(#lines >= 2 and lines[1] == "/tmp/droid-avd-test" and lines[2] == "/tmp/droid-avd-test", vim.inspect(lines))
+end)

@@ -195,6 +195,28 @@ function M.get_app_pid(adb, device_id, package_name, callback)
     callback(nil)
 end
 
+--- Environment for the SDK emulator tools: ANDROID_AVD_HOME from
+--- config.android.android_avd_home when set, else the inherited one.
+local function emulator_env()
+    local avd_home = config.get().android.android_avd_home
+    return avd_home and { ANDROID_AVD_HOME = avd_home } or nil
+end
+
+--- AVD names from `emulator -list-avds`.
+---@param emulator string
+---@return string[]
+local function list_avds(emulator)
+    local result = vim.system({ emulator, "-list-avds" }, { env = emulator_env(), text = true }):wait()
+    local avds = {}
+    for line in (result.stdout or ""):gmatch "[^\r\n]+" do
+        local trimmed = vim.trim(line)
+        if #trimmed > 0 then
+            table.insert(avds, trimmed)
+        end
+    end
+    return avds
+end
+
 function M.build_emulator_command(emulator, args)
     local full_args = { emulator, "-netdelay", "none", "-netspeed", "full" }
 
@@ -394,11 +416,8 @@ function M.get_all_targets(adb, emulator, callback)
         end
 
         if vim.fn.executable(emulator) == 1 then
-            local avds = vim.fn.systemlist { emulator, "-list-avds" }
-            for _, avd in ipairs(avds) do
-                if #avd > 0 then
-                    table.insert(targets, { type = "avd", name = "Emulator: " .. avd, avd = avd })
-                end
+            for _, avd in ipairs(list_avds(emulator)) do
+                table.insert(targets, { type = "avd", name = "Emulator: " .. avd, avd = avd })
             end
         else
             vim.notify("Emulator executable not found at " .. emulator, vim.log.levels.WARN)
@@ -435,7 +454,7 @@ end
 
 function M.start_emulator(emulator, avd)
     local cmd = M.build_emulator_command(emulator, { "-avd", avd })
-    return vim.fn.jobstart(cmd)
+    return vim.fn.jobstart(cmd, { env = emulator_env() })
 end
 
 function M.get_available_avds(emulator)
@@ -444,17 +463,7 @@ function M.get_available_avds(emulator)
         return {}
     end
 
-    local result = vim.fn.systemlist { emulator, "-list-avds" }
-    local avds = {}
-
-    for _, line in ipairs(result) do
-        local trimmed = vim.trim(line)
-        if #trimmed > 0 then
-            table.insert(avds, trimmed)
-        end
-    end
-
-    return avds
+    return list_avds(emulator)
 end
 
 function M.get_installed_system_images(callback)
@@ -621,16 +630,10 @@ local function run_avd_create(avdmanager, name, image_pkg, device_id)
         device_id,
     }
 
-    local env = nil
-    local cfg = config.get()
-    if cfg.android.android_avd_home then
-        env = { ANDROID_AVD_HOME = cfg.android.android_avd_home }
-    end
-
     vim.notify("Creating emulator: " .. name .. "...", vim.log.levels.INFO)
 
     local job_id = vim.fn.jobstart(cmd, {
-        env = env,
+        env = emulator_env(),
         stdin = "pipe",
         on_stdout = function() end,
         on_stderr = function(_, data)
@@ -748,6 +751,7 @@ function M.launch_emulator()
     prompt_and_launch(M.get_available_avds(emulator), function(choice)
         local job_args = M.build_emulator_command(emulator, { "-avd", choice })
         vim.fn.jobstart(job_args, {
+            env = emulator_env(),
             on_exit = vim.schedule_wrap(function(_, exit_code)
                 if exit_code ~= 0 then
                     vim.notify("Failed to launch Emulator: " .. choice, vim.log.levels.ERROR)
