@@ -381,29 +381,45 @@ end
 
 --- Wait for a newly started emulator to come online and finish booting.
 --- Devices in `known` were online before the start and are ignored, so a
---- connected phone is never mistaken for the new emulator.
+--- connected phone is never mistaken for the new emulator. `callback` runs
+--- exactly once, unless the returned `cancel` ends the wait first.
 ---@param adb string
 ---@param known table<string, true> ids online before the emulator started
 ---@param callback fun(device_id: string|nil)
+---@return fun(): boolean cancel ends the wait without calling `callback`, false when it had already ended
 function M.wait_for_device_ready(adb, known, callback)
     local cfg = config.get()
 
-    local timer = vim.loop.new_timer()
+    local timer = vim.uv.new_timer()
     if timer == nil then
-        return
+        return function()
+            return false
+        end
     end
 
-    local start_time = vim.loop.now()
-    local device_found = false
+    local start_time = vim.uv.now()
     local current_device_id = nil
+    local busy = false -- a check is in flight; skip ticks until it returns
+    local done = false
+
+    local function finish()
+        if done then
+            return false
+        end
+        done = true
+        timer:stop()
+        timer:close()
+        return true
+    end
 
     timer:start(0, cfg.android.boot_check_interval_ms or 3000, function()
-        local elapsed = vim.loop.now() - start_time
-        local timeout = cfg.android.boot_complete_timeout_ms or 120000
+        if done then
+            return
+        end
 
-        if elapsed > timeout then
-            timer:stop()
-            timer:close()
+        local timeout = cfg.android.boot_complete_timeout_ms or 120000
+        if vim.uv.now() - start_time > timeout then
+            finish()
             vim.schedule(function()
                 vim.notify("Timed out waiting for device to boot completely", vim.log.levels.ERROR)
                 callback(nil)
@@ -411,12 +427,17 @@ function M.wait_for_device_ready(adb, known, callback)
             return
         end
 
-        if not device_found then
+        if busy then
+            return
+        end
+        busy = true
+
+        if not current_device_id then
             -- First phase: wait for device to appear in adb devices
             M.get_running_devices(adb, function(devices)
+                busy = false
                 for _, d in ipairs(devices) do
                     if not known[d.id] and d.id:match "^emulator%-" then
-                        device_found = true
                         current_device_id = d.id
                         return
                     end
@@ -425,14 +446,15 @@ function M.wait_for_device_ready(adb, known, callback)
         else
             -- Second phase: wait for boot completion
             is_device_boot_completed(adb, current_device_id, function(is_ready)
-                if is_ready then
-                    timer:stop()
-                    timer:close()
+                busy = false
+                if is_ready and finish() then
                     callback(current_device_id)
                 end
             end)
         end
     end)
+
+    return finish
 end
 
 --- Pickable targets: every running device, then each AVD that isn't

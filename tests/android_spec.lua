@@ -157,3 +157,20 @@ check("start_avd reuses a running AVD", function()
     assert(got == "emulator-5554", tostring(got))
     assert(not vim.uv.fs_stat(vim.env.FAKE_STARTED), "an emulator was started")
 end)
+
+check("wait_for_device_ready calls back once when a check outlasts the interval", function()
+    local cfg = require("droid.config").get()
+    cfg.android.boot_check_interval_ms = 500
+    vim.env.FAKE_DEVICES = "emulator-5556\tdevice product:x model:x"
+    vim.env.FAKE_BOOT_SLEEP = "1.5"
+    local calls = {}
+    android.wait_for_device_ready(adb, {}, function(id)
+        table.insert(calls, id or false)
+    end)
+    vim.wait(6000, function()
+        return false
+    end)
+    vim.env.FAKE_BOOT_SLEEP = nil
+    cfg.android.boot_check_interval_ms = 3000
+    assert(#calls == 1 and calls[1] == "emulator-5556", vim.inspect(calls))
+end)
