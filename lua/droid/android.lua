@@ -92,11 +92,13 @@ function M.find_main_activity(adb, device_id, application_id)
         return nil
     end
 
+    -- An activity prints as pkg/Activity. Anything else, such as
+    -- "No activity found", means there is none.
     local result = nil
     local output = obj.stdout or ""
     for line in output:gmatch "[^\r\n]+" do
         line = vim.trim(line)
-        if line ~= "" then
+        if line:find("/", 1, true) then
             result = line
         end
     end

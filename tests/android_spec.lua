@@ -97,3 +97,12 @@ check("find_application_id reads the variant's applicationId", function()
     local id = android.find_application_id()
     assert(id == "com.x.demo", tostring(id))
 end)
+
+check("find_main_activity ignores output without an activity", function()
+    vim.env.FAKE_RESOLVE = "No activity found"
+    local none = android.find_main_activity(adb, "emulator-5554", "com.x")
+    assert(none == nil, tostring(none))
+    vim.env.FAKE_RESOLVE = "com.x/.Main"
+    local main = android.find_main_activity(adb, "emulator-5554", "com.x")
+    assert(main == "com.x/.Main", tostring(main))
+end)
