@@ -34,11 +34,19 @@ end
 local _cached_application_id = nil
 local _cached_application_id_root = nil
 
--- Find the project's applicationId. Searches every build.gradle{,.kts} under
--- the project root, preferring modules that apply `com.android.application`.
--- Result is cached per project root.
+-- Find the project's applicationId. Prefers the one AGP recorded for the
+-- selected variant in output-metadata.json, which includes flavor and build
+-- type suffixes. Otherwise searches every build.gradle{,.kts} under the
+-- project root, preferring modules that apply `com.android.application`, and
+-- caches that result per project root.
 function M.find_application_id()
     local root = find_project_root() or vim.fn.getcwd()
+
+    local gradle = require "droid.gradle"
+    local output = gradle.find_variant_output(root, gradle.selected_variant)
+    if output and output.application_id then
+        return output.application_id
+    end
 
     if _cached_application_id and _cached_application_id_root == root then
         return _cached_application_id
@@ -84,11 +92,13 @@ function M.find_main_activity(adb, device_id, application_id)
         return nil
     end
 
+    -- An activity prints as pkg/Activity. Anything else, such as
+    -- "No activity found", means there is none.
     local result = nil
     local output = obj.stdout or ""
     for line in output:gmatch "[^\r\n]+" do
         line = vim.trim(line)
-        if line ~= "" then
+        if line:find("/", 1, true) then
             result = line
         end
     end
@@ -183,6 +193,28 @@ function M.get_app_pid(adb, device_id, package_name, callback)
     end
 
     callback(nil)
+end
+
+--- Environment for the SDK emulator tools: ANDROID_AVD_HOME from
+--- config.android.android_avd_home when set, else the inherited one.
+local function emulator_env()
+    local avd_home = config.get().android.android_avd_home
+    return avd_home and { ANDROID_AVD_HOME = avd_home } or nil
+end
+
+--- AVD names from `emulator -list-avds`.
+---@param emulator string
+---@return string[]
+local function list_avds(emulator)
+    local result = vim.system({ emulator, "-list-avds" }, { env = emulator_env(), text = true }):wait()
+    local avds = {}
+    for line in (result.stdout or ""):gmatch "[^\r\n]+" do
+        local trimmed = vim.trim(line)
+        if #trimmed > 0 then
+            table.insert(avds, trimmed)
+        end
+    end
+    return avds
 end
 
 function M.build_emulator_command(emulator, args)
@@ -297,6 +329,34 @@ function M.get_running_devices(adb, callback)
     end)
 end
 
+--- AVD name of a running emulator, or nil when it can't be read.
+---@param adb string
+---@param serial string e.g. "emulator-5554"
+---@return string|nil
+local function avd_name(adb, serial)
+    local result = vim.system({ adb, "-s", serial, "emu", "avd", "name" }, { text = true }):wait()
+    if result.code ~= 0 then
+        return nil
+    end
+    local first = vim.trim((result.stdout or ""):match "[^\r\n]*")
+    return first ~= "" and first or nil
+end
+
+--- Running devices as from get_running_devices, with each emulator's AVD
+--- name in `avd` when it can be read.
+---@param adb string
+---@param callback fun(devices: { id: string, name: string, avd: string|nil }[])
+function M.get_devices_with_avds(adb, callback)
+    M.get_running_devices(adb, function(devices)
+        for _, d in ipairs(devices) do
+            if d.id:match "^emulator%-" then
+                d.avd = avd_name(adb, d.id)
+            end
+        end
+        callback(devices)
+    end)
+end
+
 -- Check if device is fully booted and ready for app installation
 local function is_device_boot_completed(adb, device_id, callback)
     vim.system({ adb, "-s", device_id, "shell", "getprop", "sys.boot_completed" }, {}, function(obj)
@@ -321,29 +381,45 @@ end
 
 --- Wait for a newly started emulator to come online and finish booting.
 --- Devices in `known` were online before the start and are ignored, so a
---- connected phone is never mistaken for the new emulator.
+--- connected phone is never mistaken for the new emulator. `callback` runs
+--- exactly once, unless the returned `cancel` ends the wait first.
 ---@param adb string
 ---@param known table<string, true> ids online before the emulator started
 ---@param callback fun(device_id: string|nil)
+---@return fun(): boolean cancel ends the wait without calling `callback`, false when it had already ended
 function M.wait_for_device_ready(adb, known, callback)
     local cfg = config.get()
 
-    local timer = vim.loop.new_timer()
+    local timer = vim.uv.new_timer()
     if timer == nil then
-        return
+        return function()
+            return false
+        end
     end
 
-    local start_time = vim.loop.now()
-    local device_found = false
+    local start_time = vim.uv.now()
     local current_device_id = nil
+    local busy = false -- a check is in flight; skip ticks until it returns
+    local done = false
+
+    local function finish()
+        if done then
+            return false
+        end
+        done = true
+        timer:stop()
+        timer:close()
+        return true
+    end
 
     timer:start(0, cfg.android.boot_check_interval_ms or 3000, function()
-        local elapsed = vim.loop.now() - start_time
-        local timeout = cfg.android.boot_complete_timeout_ms or 120000
+        if done then
+            return
+        end
 
-        if elapsed > timeout then
-            timer:stop()
-            timer:close()
+        local timeout = cfg.android.boot_complete_timeout_ms or 120000
+        if vim.uv.now() - start_time > timeout then
+            finish()
             vim.schedule(function()
                 vim.notify("Timed out waiting for device to boot completely", vim.log.levels.ERROR)
                 callback(nil)
@@ -351,12 +427,17 @@ function M.wait_for_device_ready(adb, known, callback)
             return
         end
 
-        if not device_found then
+        if busy then
+            return
+        end
+        busy = true
+
+        if not current_device_id then
             -- First phase: wait for device to appear in adb devices
             M.get_running_devices(adb, function(devices)
+                busy = false
                 for _, d in ipairs(devices) do
                     if not known[d.id] and d.id:match "^emulator%-" then
-                        device_found = true
                         current_device_id = d.id
                         return
                     end
@@ -365,28 +446,35 @@ function M.wait_for_device_ready(adb, known, callback)
         else
             -- Second phase: wait for boot completion
             is_device_boot_completed(adb, current_device_id, function(is_ready)
-                if is_ready then
-                    timer:stop()
-                    timer:close()
+                busy = false
+                if is_ready and finish() then
                     callback(current_device_id)
                 end
             end)
         end
     end)
+
+    return finish
 end
 
+--- Pickable targets: every running device, then each AVD that isn't
+--- already running. A running emulator is labelled with its AVD name.
 function M.get_all_targets(adb, emulator, callback)
-    M.get_running_devices(adb, function(devices)
+    M.get_devices_with_avds(adb, function(devices)
         local targets = {}
+        local running = {}
 
         for _, d in ipairs(devices) do
-            table.insert(targets, { type = "device", id = d.id, name = "Device: " .. d.name })
+            local label = d.avd and (d.avd .. " (" .. d.id .. ")") or d.name
+            table.insert(targets, { type = "device", id = d.id, name = "Device: " .. label })
+            if d.avd then
+                running[d.avd] = true
+            end
         end
 
         if vim.fn.executable(emulator) == 1 then
-            local avds = vim.fn.systemlist { emulator, "-list-avds" }
-            for _, avd in ipairs(avds) do
-                if #avd > 0 then
+            for _, avd in ipairs(list_avds(emulator)) do
+                if not running[avd] then
                     table.insert(targets, { type = "avd", name = "Emulator: " .. avd, avd = avd })
                 end
             end
@@ -423,9 +511,37 @@ function M.choose_target(adb, emulator, callback)
     end)
 end
 
-function M.start_emulator(emulator, avd)
+--- Start `avd` as a job of this Neovim, so it stops when Neovim exits. When
+--- the emulator exits nonzero, `on_fail(msg)` gets its last FATAL or ERROR
+--- line, else its last non-empty line.
+--- Only those two lines are kept, since a running emulator logs for hours.
+---@param emulator string
+---@param avd string
+---@param on_fail fun(msg: string)|nil
+function M.start_emulator(emulator, avd, on_fail)
     local cmd = M.build_emulator_command(emulator, { "-avd", avd })
-    return vim.fn.jobstart(cmd)
+    local last, telling
+    local function collect(_, data)
+        for _, line in ipairs(data) do
+            line = vim.trim(line)
+            if line ~= "" then
+                last = line
+                if line:find "FATAL" or line:find "ERROR" then
+                    telling = line
+                end
+            end
+        end
+    end
+    return vim.fn.jobstart(cmd, {
+        env = emulator_env(),
+        on_stdout = collect,
+        on_stderr = collect,
+        on_exit = vim.schedule_wrap(function(_, exit_code)
+            if exit_code ~= 0 and on_fail then
+                on_fail(telling or last or ("emulator exited with code " .. exit_code))
+            end
+        end),
+    })
 end
 
 function M.get_available_avds(emulator)
@@ -434,17 +550,7 @@ function M.get_available_avds(emulator)
         return {}
     end
 
-    local result = vim.fn.systemlist { emulator, "-list-avds" }
-    local avds = {}
-
-    for _, line in ipairs(result) do
-        local trimmed = vim.trim(line)
-        if #trimmed > 0 then
-            table.insert(avds, trimmed)
-        end
-    end
-
-    return avds
+    return list_avds(emulator)
 end
 
 function M.get_installed_system_images(callback)
@@ -611,16 +717,10 @@ local function run_avd_create(avdmanager, name, image_pkg, device_id)
         device_id,
     }
 
-    local env = nil
-    local cfg = config.get()
-    if cfg.android.android_avd_home then
-        env = { ANDROID_AVD_HOME = cfg.android.android_avd_home }
-    end
-
     vim.notify("Creating emulator: " .. name .. "...", vim.log.levels.INFO)
 
     local job_id = vim.fn.jobstart(cmd, {
-        env = env,
+        env = emulator_env(),
         stdin = "pipe",
         on_stdout = function() end,
         on_stderr = function(_, data)
@@ -738,6 +838,7 @@ function M.launch_emulator()
     prompt_and_launch(M.get_available_avds(emulator), function(choice)
         local job_args = M.build_emulator_command(emulator, { "-avd", choice })
         vim.fn.jobstart(job_args, {
+            env = emulator_env(),
             on_exit = vim.schedule_wrap(function(_, exit_code)
                 if exit_code ~= 0 then
                     vim.notify("Failed to launch Emulator: " .. choice, vim.log.levels.ERROR)

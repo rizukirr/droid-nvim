@@ -2,6 +2,7 @@ local config = require "droid.config"
 local gradle = require "droid.gradle"
 local android = require "droid.android"
 local logcat = require "droid.logcat"
+local cli = require "droid.backends.android_cli"
 
 local M = {}
 
@@ -30,7 +31,6 @@ end
 -- wants to launch (:DroidRun, not :DroidInstall) and the CLI backend is
 -- preferred for deploy and actually available.
 local function execute_build_run_via_cli(tools, device_id, on_complete)
-    local cli = require "droid.backends.android_cli"
     local g = gradle.find_gradlew()
     if not g then
         if on_complete then
@@ -85,7 +85,6 @@ end
 
 local function execute_build_install(tools, device_id, launch_app, on_complete)
     if launch_app then
-        local cli = require "droid.backends.android_cli"
         if cli.prefers "deploy" then
             execute_build_run_via_cli(tools, device_id, on_complete)
             return
@@ -127,22 +126,35 @@ end
 
 --- Start `avd`, wait until the new emulator has booted, then call
 --- `on_ready(device_id)`, or `on_ready(nil)` when it never came up.
+--- An AVD that is already running is reused without starting anything.
+--- A start that fails before boot ends the wait at once.
 local function start_avd(tools, avd, on_ready)
-    android.get_running_devices(tools.adb, function(devices)
+    android.get_devices_with_avds(tools.adb, function(devices)
         local known = {}
         for _, d in ipairs(devices) do
+            if d.avd == avd then
+                on_ready(d.id)
+                return
+            end
             known[d.id] = true
         end
 
         vim.notify("Starting emulator...", vim.log.levels.INFO)
-        local cli = require "droid.backends.android_cli"
-        if cli.prefers "emulator" then
-            cli.start_emulator(avd)
-        else
-            android.start_emulator(tools.emulator, avd)
+        local cancel
+        local function on_fail(msg)
+            if cancel and cancel() then
+                vim.notify("Emulator failed to start: " .. msg, vim.log.levels.ERROR)
+                on_ready(nil)
+            end
         end
 
-        android.wait_for_device_ready(tools.adb, known, function(device_id)
+        if cli.prefers "emulator" then
+            cli.start_emulator(avd, on_fail)
+        else
+            android.start_emulator(tools.emulator, avd, on_fail)
+        end
+
+        cancel = android.wait_for_device_ready(tools.adb, known, function(device_id)
             if not device_id then
                 vim.notify("Failed to start emulator or device not ready", vim.log.levels.ERROR)
             end
@@ -150,6 +162,9 @@ local function start_avd(tools, avd, on_ready)
         end)
     end)
 end
+
+-- Exposed for tests/android_spec.lua.
+M._start_avd = start_avd
 
 function M.build_and_run(on_complete)
     local tools = M.get_required_tools()
