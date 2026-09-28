@@ -75,12 +75,6 @@ function M.setup_commands()
         actions.show_devices()
     end, {})
 
-    vim.api.nvim_create_user_command("DroidInstall", function()
-        guarded("DroidInstall", function(done)
-            actions.install_only(done)
-        end)
-    end, {})
-
     vim.api.nvim_create_user_command("DroidLogcat", function()
         check_guard("DroidLogcat", function()
             actions.logcat_only()

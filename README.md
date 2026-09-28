@@ -145,8 +145,7 @@ require("droid").setup({
     -- android-cli backend. "auto" uses the `android` binary if on PATH,
     -- true forces it (warns when missing), false disables it entirely.
     -- When active, droid-nvim routes emulator management, :DroidRun
-    -- deploy, screenshots, and KB docs through android-cli. :DroidInstall
-    -- stays on gradle (android run cannot install without launching).
+    -- deploy, screenshots, and KB docs through android-cli.
     android_cli = "auto",
 })
 ```
@@ -326,9 +325,8 @@ type name interpolated by the language server. Add your own via
 
 | Command | Description |
 | --- | --- |
-| `:DroidRun` | Build, install, launch, and show logcat |
+| `:DroidRun` | Pick a variant and a device, then build, install, launch, and show logcat |
 | `:DroidBuild` | Pick a build variant, then build its APK |
-| `:DroidInstall` | Build and install APK |
 
 ### Gradle
 
@@ -373,7 +371,7 @@ These commands require the [`android` CLI](https://developer.android.com/tools/a
 | `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
 | `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
 
-When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`, `:DroidEmulatorCreate`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`. `:DroidInstall` always uses the legacy gradle path because `android run` cannot install without launching.
+When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`, `:DroidEmulatorCreate`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`.
 
 > **Note:** `android emulator` is not supported on Windows; the emulator commands fall back to `avdmanager`/`emulator` there even when `android_cli` is active.
 
@@ -424,7 +422,6 @@ These commands work in `.kt` and `.groovy` buffers with their respective LSP att
 -- Workflow
 vim.keymap.set("n", "<leader>ar", ":DroidRun<CR>")
 vim.keymap.set("n", "<leader>ab", ":DroidBuild<CR>")
-vim.keymap.set("n", "<leader>ai", ":DroidInstall<CR>")
 
 -- Gradle
 vim.keymap.set("n", "<leader>as", ":DroidSync<CR>")

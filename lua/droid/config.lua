@@ -68,8 +68,6 @@ local defaults = {
     -- PATH; true forces it on (errors when unavailable); false disables
     -- it entirely. When active, droid-nvim routes emulator management,
     -- :DroidRun deploy, screenshots, and KB docs through android-cli.
-    -- :DroidInstall stays on the gradle path either way (android run
-    -- cannot install without launching).
     android_cli = "auto",
     -- Editor-experience features for Kotlin buffers. Independent of `lsp`.
     editor = {

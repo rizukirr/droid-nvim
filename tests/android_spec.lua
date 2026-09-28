@@ -377,3 +377,28 @@ check("a failed install shows Gradle's output", function()
     local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
     assert(text:find("Ambiguous matches", 1, true), text)
 end)
+
+check(":DroidRun asks for a variant, then a device, then builds and installs it", function()
+    vim.fn.chdir(flavored_gradle)
+    vim.env.FAKE_GRADLE_TASKS = minbar_tasks
+    commands.setup_commands()
+    assert(vim.fn.exists ":DroidInstall" == 0, ":DroidInstall still exists")
+    assert(require("droid").install_only == nil, "install_only is still exported")
+    vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone"
+    vim.env.FAKE_AVD_NAME = "Medium_Phone"
+    gradle.selected_variant = "Debug"
+    selects = {}
+    answers["Select build variant:"] = "DemoDebug"
+    answers["Select device/emulator"] = function(items)
+        return items[1]
+    end
+    local before = #gradle_calls()
+    vim.cmd "DroidRun"
+    vim.wait(10000, function()
+        return #gradle_calls() >= before + 2
+    end)
+    local calls = vim.list_slice(gradle_calls(), before + 1)
+    assert(vim.deep_equal(calls, { "assembleDemoDebug", "installDemoDebug" }), vim.inspect(calls))
+    assert(selects[1] and selects[1].prompt == "Select build variant:", vim.inspect(selects))
+    assert(selects[2] and selects[2].prompt == "Select device/emulator", vim.inspect(selects))
+end)
