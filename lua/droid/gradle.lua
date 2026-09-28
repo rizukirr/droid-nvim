@@ -325,26 +325,16 @@ function M.task(task, args, on_complete)
     end)
 end
 
---- Run the install task as the gradle buffer's current job, then report.
---- `step` is passed through to callbacks that track which step ran.
-local function run_install(g, task, ok_message, callback, step)
-    local job_id = vim.fn.jobstart({ g.gradlew, task }, {
-        cwd = g.cwd,
-        on_exit = function(job_id, code)
-            buffer.release_job(job_id)
-
-            local success = code == 0
-            local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
-            vim.notify(message, success and vim.log.levels.INFO or vim.log.levels.ERROR)
-
-            if callback then
-                vim.schedule(function()
-                    callback(success, code, message, step)
-                end)
-            end
-        end,
-    })
-    buffer.set_current_job(job_id)
+--- Run install<Variant> in the gradle buffer, notify, then pass
+--- `(success, code, message, step)` to `callback`.
+local function run_install(g, ok_message, callback, step)
+    run_gradle_task(g.cwd, g.gradlew, "install" .. M.selected_variant, nil, function(success, code)
+        local message = success and ok_message or ("Install failed (exit code: " .. code .. ")")
+        vim.notify(message, success and vim.log.levels.INFO or vim.log.levels.ERROR)
+        if callback then
+            callback(success, code, message, step)
+        end
+    end)
 end
 
 function M.install(callback)
@@ -358,21 +348,7 @@ function M.install(callback)
         return
     end
 
-    local task = "install" .. M.selected_variant
-
-    local buf = buffer.get_or_create("gradle", nil)
-
-    if not buf then
-        vim.notify("Buffer is busy, install operation cancelled", vim.log.levels.WARN)
-        if callback then
-            vim.schedule(function()
-                callback(false, -1, "Buffer busy")
-            end)
-        end
-        return
-    end
-
-    run_install(g, task, M.selected_variant .. " APK installed successfully", callback)
+    run_install(g, M.selected_variant .. " APK installed successfully", callback)
 end
 
 -- Sequential build then install for DroidRun workflow
@@ -388,7 +364,6 @@ function M.build_and_install(callback)
     end
 
     local assemble_task = "assemble" .. M.selected_variant
-    local install_task = "install" .. M.selected_variant
 
     run_gradle_task(g.cwd, g.gradlew, assemble_task, nil, function(build_success, build_code)
         if not build_success then
@@ -403,20 +378,7 @@ function M.build_and_install(callback)
             return
         end
 
-        local buf = buffer.get_or_create("gradle", nil)
-
-        if not buf then
-            local message = "Buffer busy, install cancelled"
-            vim.notify(message, vim.log.levels.ERROR)
-            if callback then
-                vim.schedule(function()
-                    callback(false, -1, message, "install")
-                end)
-            end
-            return
-        end
-
-        run_install(g, install_task, "Build and install completed successfully", callback, "install")
+        run_install(g, "Build and install completed successfully", callback, "install")
     end)
 end
 

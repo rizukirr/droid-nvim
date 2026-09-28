@@ -356,3 +356,24 @@ check(":DroidBuild asks for a variant, then builds it", function()
     end)
     assert(count(gradle_calls(), "assembleProdRelease") == 1, vim.inspect(gradle_calls()))
 end)
+
+check("a failed install shows Gradle's output", function()
+    vim.fn.chdir(flavored_gradle)
+    gradle.selected_variant = "DemoDebug"
+    vim.env.FAKE_INSTALL_OUTPUT = "Ambiguous matches"
+    vim.env.FAKE_INSTALL_EXIT = "1"
+    local result
+    gradle.build_and_install(function(success, _, _, step)
+        result = { success = success, step = step }
+    end)
+    vim.wait(10000, function()
+        return result ~= nil
+    end)
+    vim.wait(200)
+    vim.env.FAKE_INSTALL_OUTPUT = nil
+    vim.env.FAKE_INSTALL_EXIT = nil
+    assert(result and result.success == false and result.step == "install", vim.inspect(result))
+    local buf = require("droid.buffer").buffer_id
+    local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    assert(text:find("Ambiguous matches", 1, true), text)
+end)
