@@ -511,8 +511,9 @@ function M.choose_target(adb, emulator, callback)
     end)
 end
 
---- Start `avd` detached. When the emulator exits nonzero, `on_fail(msg)`
---- gets its last FATAL or ERROR line, else its last non-empty line.
+--- Start `avd` as a job of this Neovim, so it stops when Neovim exits. When
+--- the emulator exits nonzero, `on_fail(msg)` gets its last FATAL or ERROR
+--- line, else its last non-empty line.
 --- Only those two lines are kept, since a running emulator logs for hours.
 ---@param emulator string
 ---@param avd string
