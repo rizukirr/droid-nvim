@@ -34,11 +34,19 @@ end
 local _cached_application_id = nil
 local _cached_application_id_root = nil
 
--- Find the project's applicationId. Searches every build.gradle{,.kts} under
--- the project root, preferring modules that apply `com.android.application`.
--- Result is cached per project root.
+-- Find the project's applicationId. Prefers the one AGP recorded for the
+-- selected variant in output-metadata.json, which includes flavor and build
+-- type suffixes. Otherwise searches every build.gradle{,.kts} under the
+-- project root, preferring modules that apply `com.android.application`, and
+-- caches that result per project root.
 function M.find_application_id()
     local root = find_project_root() or vim.fn.getcwd()
+
+    local gradle = require "droid.gradle"
+    local output = gradle.find_variant_output(root, gradle.selected_variant)
+    if output and output.application_id then
+        return output.application_id
+    end
 
     if _cached_application_id and _cached_application_id_root == root then
         return _cached_application_id

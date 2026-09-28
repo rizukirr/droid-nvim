@@ -4,27 +4,44 @@ local M = {}
 
 M.selected_variant = "Debug"
 
---- Locate APKs produced by `assemble<Variant>` under the standard AGP
---- output layout. Handles both:
----   - default builds: */build/outputs/apk/<variantLower>/*.apk
----   - flavored builds: */build/outputs/apk/<flavor><Variant>/*.apk
----     (e.g. freeDebug, paidRelease)
---- An APK is considered a match when its parent directory name either
---- equals variant:lower() or ends with the variant in its camelCase form.
+--- Read the `output-metadata.json` AGP writes next to a variant's APKs,
+--- under */build/outputs/apk/<buildType>/ or <flavor>/<buildType>/.
 ---@param cwd string project root
----@param variant string e.g. "Debug" or "Release"
----@return string[] absolute APK paths
-function M.find_apks_for_variant(cwd, variant)
-    local lower = variant:lower()
-    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "*", "*.apk")
-    local matches = {}
-    for _, apk in ipairs(vim.fn.glob(pattern, false, true)) do
-        local dir = vim.fs.basename(vim.fs.dirname(apk))
-        if dir == lower or (dir:sub(-#variant) == variant and #dir > #variant) then
-            table.insert(matches, apk)
+---@param variant string e.g. "Debug" or "DemoDebug", matched case-insensitively
+---@return { apks: string[], application_id: string|nil }|nil nil when no build output matches
+function M.find_variant_output(cwd, variant)
+    local pattern = vim.fs.joinpath(cwd, "*", "build", "outputs", "apk", "**", "output-metadata.json")
+    for _, path in ipairs(vim.fn.glob(pattern, false, true)) do
+        local ok, meta = pcall(function()
+            return vim.json.decode(table.concat(vim.fn.readfile(path), "\n"))
+        end)
+        if
+            ok
+            and type(meta) == "table"
+            and type(meta.variantName) == "string"
+            and meta.variantName:lower() == variant:lower()
+        then
+            local dir = vim.fs.dirname(path)
+            local apks = {}
+            for _, element in ipairs(meta.elements or {}) do
+                if type(element.outputFile) == "string" then
+                    table.insert(apks, vim.fs.joinpath(dir, element.outputFile))
+                end
+            end
+            local application_id = type(meta.applicationId) == "string" and meta.applicationId or nil
+            return { apks = apks, application_id = application_id }
         end
     end
-    return matches
+    return nil
+end
+
+--- APKs produced by `assemble<Variant>`, read from the variant's output-metadata.json.
+---@param cwd string project root
+---@param variant string e.g. "Debug" or "DemoDebug"
+---@return string[] absolute APK paths
+function M.find_apks_for_variant(cwd, variant)
+    local output = M.find_variant_output(cwd, variant)
+    return output and output.apks or {}
 end
 
 local is_windows = vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1
