@@ -6,30 +6,24 @@ local cli = require "droid.backends.android_cli"
 
 local M = {}
 
-local function handle_post_install(tools, device_id, launch_app)
+local function handle_post_install(tools, device_id)
     local cfg = config.get()
 
     local function start_logcat()
         local delay_ms = cfg.android.logcat_startup_delay_ms or 2000
         vim.defer_fn(function()
             logcat.refresh_logcat(tools.adb, device_id, nil, nil)
-            local message = launch_app and "Build, install, and launch completed" or "Build and install completed"
-            vim.notify(message, vim.log.levels.INFO)
+            vim.notify("Build, install, and launch completed", vim.log.levels.INFO)
         end, delay_ms)
     end
 
-    if launch_app then
-        android.launch_app_on_device(tools.adb, device_id, start_logcat)
-    else
-        start_logcat()
-    end
+    android.launch_app_on_device(tools.adb, device_id, start_logcat)
 end
 
 -- :DroidRun fast path: gradle assemble<Variant> + `android run --apks=…`.
 -- `android run` installs and launches in one call, so we skip the
--- gradle install task and the am-start step. Only used when the caller
--- wants to launch (:DroidRun, not :DroidInstall) and the CLI backend is
--- preferred for deploy and actually available.
+-- gradle install task and the am-start step. Used when the CLI backend
+-- is preferred for deploy and actually available.
 local function execute_build_run_via_cli(tools, device_id, on_complete)
     local g = gradle.find_gradlew()
     if not g then
@@ -60,7 +54,7 @@ local function execute_build_run_via_cli(tools, device_id, on_complete)
                     on_complete()
                 end
                 if install_ok then
-                    handle_post_install(tools, device_id, true)
+                    handle_post_install(tools, device_id)
                 end
             end)
             return
@@ -83,12 +77,10 @@ local function execute_build_run_via_cli(tools, device_id, on_complete)
     end)
 end
 
-local function execute_build_install(tools, device_id, launch_app, on_complete)
-    if launch_app then
-        if cli.prefers "deploy" then
-            execute_build_run_via_cli(tools, device_id, on_complete)
-            return
-        end
+local function execute_build_install(tools, device_id, on_complete)
+    if cli.prefers "deploy" then
+        execute_build_run_via_cli(tools, device_id, on_complete)
+        return
     end
 
     gradle.build_and_install(function(success, exit_code, message, step)
@@ -101,7 +93,7 @@ local function execute_build_install(tools, device_id, launch_app, on_complete)
             return
         end
 
-        handle_post_install(tools, device_id, launch_app)
+        handle_post_install(tools, device_id)
     end)
 end
 
@@ -175,60 +167,36 @@ function M.build_and_run(on_complete)
         return
     end
 
-    M.select_target(tools, function(target)
-        if not target then
+    gradle.pick_variant("install", function(picked)
+        if not picked then
             if on_complete then
                 on_complete()
             end
             return
         end
 
-        if target.type == "device" then
-            execute_build_install(tools, target.id, true, on_complete)
-        elseif target.type == "avd" then
-            start_avd(tools, target.avd, function(device_id)
-                if not device_id then
-                    if on_complete then
-                        on_complete()
-                    end
-                    return
+        M.select_target(tools, function(target)
+            if not target then
+                if on_complete then
+                    on_complete()
                 end
-                execute_build_install(tools, device_id, true, on_complete)
-            end)
-        end
-    end)
-end
-
-function M.install_only(on_complete)
-    local tools = M.get_required_tools()
-    if not tools then
-        if on_complete then
-            on_complete()
-        end
-        return
-    end
-
-    M.select_target(tools, function(target)
-        if not target then
-            if on_complete then
-                on_complete()
+                return
             end
-            return
-        end
 
-        if target.type == "device" then
-            execute_build_install(tools, target.id, false, on_complete)
-        elseif target.type == "avd" then
-            start_avd(tools, target.avd, function(device_id)
-                if not device_id then
-                    if on_complete then
-                        on_complete()
+            if target.type == "device" then
+                execute_build_install(tools, target.id, on_complete)
+            elseif target.type == "avd" then
+                start_avd(tools, target.avd, function(device_id)
+                    if not device_id then
+                        if on_complete then
+                            on_complete()
+                        end
+                        return
                     end
-                    return
-                end
-                execute_build_install(tools, device_id, false, on_complete)
-            end)
-        end
+                    execute_build_install(tools, device_id, on_complete)
+                end)
+            end
+        end)
     end)
 end
 
