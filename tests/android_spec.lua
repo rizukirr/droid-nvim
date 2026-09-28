@@ -46,6 +46,7 @@ vim.env.FAKE_STARTED = vim.fs.joinpath(root, "started")
 
 local gradle = require "droid.gradle"
 local android = require "droid.android"
+local actions = require "droid.actions"
 
 local function check(name, fn)
     fn()
@@ -121,4 +122,38 @@ check("emulator tools run with config.android.android_avd_home", function()
     vim.env.FAKE_ENV_LOG = nil
     local lines = vim.uv.fs_stat(log) and vim.fn.readfile(log) or {}
     assert(#lines >= 2 and lines[1] == "/tmp/droid-avd-test" and lines[2] == "/tmp/droid-avd-test", vim.inspect(lines))
+end)
+
+vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone transport_id:1"
+vim.env.FAKE_AVD_NAME = "Medium_Phone"
+
+check("a running AVD is listed once, as a device", function()
+    local targets
+    android.get_all_targets(adb, emulator, function(t)
+        targets = t
+    end)
+    vim.wait(2000, function()
+        return targets ~= nil
+    end)
+    local devices, avds = {}, {}
+    for _, t in ipairs(targets or {}) do
+        table.insert(t.type == "device" and devices or avds, t)
+    end
+    assert(#devices == 1, vim.inspect(targets))
+    assert(devices[1].name:find("Medium_Phone", 1, true), vim.inspect(targets))
+    assert(devices[1].name:find("emulator-5554", 1, true), vim.inspect(targets))
+    assert(#avds == 1 and avds[1].avd == "Medium_Tablet", vim.inspect(targets))
+end)
+
+check("start_avd reuses a running AVD", function()
+    os.remove(vim.env.FAKE_STARTED)
+    local got
+    actions._start_avd({ adb = adb, emulator = emulator }, "Medium_Phone", function(id)
+        got = id or false
+    end)
+    vim.wait(2000, function()
+        return got ~= nil
+    end)
+    assert(got == "emulator-5554", tostring(got))
+    assert(not vim.uv.fs_stat(vim.env.FAKE_STARTED), "an emulator was started")
 end)

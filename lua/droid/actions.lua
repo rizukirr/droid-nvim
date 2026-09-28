@@ -127,10 +127,15 @@ end
 
 --- Start `avd`, wait until the new emulator has booted, then call
 --- `on_ready(device_id)`, or `on_ready(nil)` when it never came up.
+--- An AVD that is already running is reused without starting anything.
 local function start_avd(tools, avd, on_ready)
-    android.get_running_devices(tools.adb, function(devices)
+    android.get_devices_with_avds(tools.adb, function(devices)
         local known = {}
         for _, d in ipairs(devices) do
+            if d.avd == avd then
+                on_ready(d.id)
+                return
+            end
             known[d.id] = true
         end
 
@@ -150,6 +155,9 @@ local function start_avd(tools, avd, on_ready)
         end)
     end)
 end
+
+-- Exposed for tests/android_spec.lua.
+M._start_avd = start_avd
 
 function M.build_and_run(on_complete)
     local tools = M.get_required_tools()

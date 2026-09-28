@@ -329,6 +329,34 @@ function M.get_running_devices(adb, callback)
     end)
 end
 
+--- AVD name of a running emulator, or nil when it can't be read.
+---@param adb string
+---@param serial string e.g. "emulator-5554"
+---@return string|nil
+local function avd_name(adb, serial)
+    local result = vim.system({ adb, "-s", serial, "emu", "avd", "name" }, { text = true }):wait()
+    if result.code ~= 0 then
+        return nil
+    end
+    local first = vim.trim((result.stdout or ""):match "[^\r\n]*")
+    return first ~= "" and first or nil
+end
+
+--- Running devices as from get_running_devices, with each emulator's AVD
+--- name in `avd` when it can be read.
+---@param adb string
+---@param callback fun(devices: { id: string, name: string, avd: string|nil }[])
+function M.get_devices_with_avds(adb, callback)
+    M.get_running_devices(adb, function(devices)
+        for _, d in ipairs(devices) do
+            if d.id:match "^emulator%-" then
+                d.avd = avd_name(adb, d.id)
+            end
+        end
+        callback(devices)
+    end)
+end
+
 -- Check if device is fully booted and ready for app installation
 local function is_device_boot_completed(adb, device_id, callback)
     vim.system({ adb, "-s", device_id, "shell", "getprop", "sys.boot_completed" }, {}, function(obj)
@@ -407,17 +435,26 @@ function M.wait_for_device_ready(adb, known, callback)
     end)
 end
 
+--- Pickable targets: every running device, then each AVD that isn't
+--- already running. A running emulator is labelled with its AVD name.
 function M.get_all_targets(adb, emulator, callback)
-    M.get_running_devices(adb, function(devices)
+    M.get_devices_with_avds(adb, function(devices)
         local targets = {}
+        local running = {}
 
         for _, d in ipairs(devices) do
-            table.insert(targets, { type = "device", id = d.id, name = "Device: " .. d.name })
+            local label = d.avd and (d.avd .. " (" .. d.id .. ")") or d.name
+            table.insert(targets, { type = "device", id = d.id, name = "Device: " .. label })
+            if d.avd then
+                running[d.avd] = true
+            end
         end
 
         if vim.fn.executable(emulator) == 1 then
             for _, avd in ipairs(list_avds(emulator)) do
-                table.insert(targets, { type = "avd", name = "Emulator: " .. avd, avd = avd })
+                if not running[avd] then
+                    table.insert(targets, { type = "avd", name = "Emulator: " .. avd, avd = avd })
+                end
             end
         else
             vim.notify("Emulator executable not found at " .. emulator, vim.log.levels.WARN)
