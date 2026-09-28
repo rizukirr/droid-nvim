@@ -1,4 +1,4 @@
--- Headless checks for droid's manual device path. Run from the repo root:
+-- Headless checks for droid's device path and Gradle variants. Run from the repo root:
 --   nvim --headless -u NONE --cmd "set rtp+=." -l tests/android_spec.lua
 -- Fake `adb` and `emulator` scripts stand in for the SDK. Their output is
 -- steered through FAKE_* environment variables set before each check.
