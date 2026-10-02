@@ -326,7 +326,7 @@ type name interpolated by the language server. Add your own via
 
 | Command | Description |
 | --- | --- |
-| `:DroidRun` | Pick a variant and a device, then build, install, launch, and show logcat |
+| `:DroidRun` | Pick a variant and a running device, then build, install, launch, and show logcat. Start an emulator first with `:DroidEmulator` |
 | `:DroidBuild` | Pick a build variant, then build its APK |
 
 ### Gradle
