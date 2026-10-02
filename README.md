@@ -350,9 +350,7 @@ Gradle output runs in the droid panel. Closing the panel leaves the task running
 
 | Command | Description |
 | --- | --- |
-| `:DroidDevices` | Show device/emulator picker |
-| `:DroidEmulator` | Start emulator |
-| `:DroidEmulatorCreate` | Create new emulator (AVD) |
+| `:DroidEmulator` | Start an emulator, or pick "+ Create New Emulator" to create one |
 | `:DroidEmulatorStop` | Stop emulator |
 | `:DroidMirror` | Mirror device screen (scrcpy) |
 
@@ -374,7 +372,7 @@ These commands require the [`android` CLI](https://developer.android.com/tools/a
 | `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
 | `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
 
-When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`, `:DroidEmulatorCreate`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`.
+When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`.
 
 > **Note:** `android emulator` is not supported on Windows; the emulator commands fall back to `avdmanager`/`emulator` there even when `android_cli` is active.
 
@@ -433,9 +431,7 @@ vim.keymap.set("n", "<leader>as", ":DroidSync<CR>")
 vim.keymap.set("n", "<leader>ac", ":DroidClean<CR>")
 
 -- Device
-vim.keymap.set("n", "<leader>ad", ":DroidDevices<CR>")
 vim.keymap.set("n", "<leader>ae", ":DroidEmulator<CR>")
-vim.keymap.set("n", "<leader>aE", ":DroidEmulatorCreate<CR>")
 vim.keymap.set("n", "<leader>am", ":DroidMirror<CR>")
 
 -- Logcat

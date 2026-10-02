@@ -194,22 +194,4 @@ function M.logcat_only()
     logcat.apply_filters {}
 end
 
-function M.show_devices()
-    local tools = M.get_required_tools()
-    if not tools then
-        return
-    end
-
-    M.select_target(tools, function(target)
-        if not target then
-            return
-        end
-
-        local msg = target.type == "device" and string.format("Selected device: %s (%s)", target.name, target.id)
-            or string.format("Selected AVD: %s (%s)", target.name, target.avd)
-
-        vim.notify(msg, vim.log.levels.INFO)
-    end)
-end
-
 return M

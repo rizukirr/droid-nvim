@@ -386,6 +386,9 @@ check(":DroidRun asks for a variant, then a device, then installs it in one Grad
     vim.env.FAKE_GRADLE_TASKS = minbar_tasks
     commands.setup_commands()
     assert(vim.fn.exists ":DroidInstall" == 0, ":DroidInstall still exists")
+    assert(vim.fn.exists ":DroidDevices" == 0, ":DroidDevices still exists")
+    assert(vim.fn.exists ":DroidEmulatorCreate" == 0, ":DroidEmulatorCreate still exists")
+    assert(vim.fn.exists ":DroidEmulator" == 2, ":DroidEmulator is missing")
     assert(require("droid").install_only == nil, "install_only is still exported")
     vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone"
     vim.env.FAKE_AVD_NAME = "Medium_Phone"
