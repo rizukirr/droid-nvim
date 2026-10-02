@@ -235,13 +235,13 @@ function M.setup_commands()
             vim.ui.select(results, {
                 prompt = "Android KB results:",
                 format_item = function(r)
-                    return r
+                    return r.title .. "  " .. r.url
                 end,
             }, function(choice)
                 if not choice then
                     return
                 end
-                local url = choice:match "kb://%S+" or choice
+                local url = choice.url
                 local name = "droid-docs://" .. url
                 for _, buf in ipairs(vim.api.nvim_list_bufs()) do
                     if vim.api.nvim_buf_get_name(buf) == name then

@@ -120,3 +120,65 @@ check("folding takes over kotlin_ls buffers and gives them back on detach", func
     end)
     assert(vim.wo.foldmethod == "manual", vim.wo.foldmethod)
 end)
+
+local cli = require "droid.backends.android_cli"
+
+-- Output captured from android-cli 1.0.16486076.
+check("docs search output parses into titles and kb:// URLs", function()
+    local results = cli._parse_docs_search(table.concat({
+        "Waiting for index to be ready...",
+        "Searching docs for: logcat",
+        "1. Logcat",
+        "   URL: kb://android/tools/logcat",
+        "   Logcat is a command-line tool used to view system messages...",
+        "",
+        "2. Android Studio Dolphin | 2021.3.1 (Sep 2022)",
+        "   URL: kb://android/studio/releases/past-releases/as-dolphin-release-notes",
+        "   Discover what's new in Android Studio Dolphin....",
+    }, "\n"))
+    assert(
+        vim.deep_equal(results, {
+            { title = "Logcat", url = "kb://android/tools/logcat" },
+            {
+                title = "Android Studio Dolphin | 2021.3.1 (Sep 2022)",
+                url = "kb://android/studio/releases/past-releases/as-dolphin-release-notes",
+            },
+        }),
+        vim.inspect(results)
+    )
+end)
+
+check("docs fetch output drops the progress and header lines", function()
+    local body = cli._parse_docs_fetch(table.concat({
+        "Waiting for index to be ready...",
+        "Fetching docs from: kb://android/tools/logcat",
+        "Title: Logcat",
+        "URL: kb://android/tools/logcat",
+        "----------------------------------------",
+        "Logcat is a command-line tool.",
+    }, "\n"))
+    assert(body == "# Logcat\n\nLogcat is a command-line tool.", vim.inspect(body))
+end)
+
+check("emulator create passes the profile as an argument", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local log = dir .. "/args"
+    vim.fn.writefile({
+        "#!/bin/sh",
+        'if [ "$1" = "-V" ]; then echo 1.0.1; exit 0; fi',
+        'echo "$*" > ' .. log,
+    }, dir .. "/android")
+    vim.uv.fs_chmod(dir .. "/android", tonumber("755", 8))
+    vim.env.PATH = dir .. ":" .. vim.env.PATH
+    config.setup { android_cli = true }
+    cli.reset_cache()
+    local ok
+    cli.create_emulator("medium_phone", function(success)
+        ok = success
+    end)
+    vim.wait(3000, function()
+        return ok ~= nil
+    end)
+    assert(ok == true and vim.fn.readfile(log)[1] == "emulator create medium_phone", vim.inspect(vim.fn.readfile(log)))
+end)
