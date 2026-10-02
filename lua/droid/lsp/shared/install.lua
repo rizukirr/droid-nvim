@@ -87,27 +87,32 @@ function M.install_via_mason(opts, on_installed)
     end
 
     local install = "Install with Mason"
-    vim.ui.select({ install, "Not now" }, { prompt = opts.display_name .. " is not installed" }, function(choice)
-        if choice ~= install then
-            return
-        end
-        vim.notify(string.format("droid.nvim: Installing %s via Mason...", opts.display_name), vim.log.levels.INFO)
-        pkg:install():once(
-            "closed",
-            vim.schedule_wrap(function()
-                if not pkg:is_installed() then
-                    vim.notify(
-                        string.format("droid.nvim: Failed to install %s via Mason.", opts.display_name),
-                        vim.log.levels.ERROR
-                    )
-                    return
-                end
-                vim.notify(string.format("droid.nvim: %s installed", opts.display_name), vim.log.levels.INFO)
-                if on_installed then
-                    on_installed()
-                end
-            end)
-        )
+    -- This runs from a FileType autocmd while the file is still loading.
+    -- Opening a picker there loses focus once loading switches back to the
+    -- buffer, so wait until it is done.
+    vim.schedule(function()
+        vim.ui.select({ install, "Not now" }, { prompt = opts.display_name .. " is not installed" }, function(choice)
+            if choice ~= install then
+                return
+            end
+            vim.notify(string.format("droid.nvim: Installing %s via Mason...", opts.display_name), vim.log.levels.INFO)
+            pkg:install():once(
+                "closed",
+                vim.schedule_wrap(function()
+                    if not pkg:is_installed() then
+                        vim.notify(
+                            string.format("droid.nvim: Failed to install %s via Mason.", opts.display_name),
+                            vim.log.levels.ERROR
+                        )
+                        return
+                    end
+                    vim.notify(string.format("droid.nvim: %s installed", opts.display_name), vim.log.levels.INFO)
+                    if on_installed then
+                        on_installed()
+                    end
+                end)
+            )
+        end)
     end)
 end
 
