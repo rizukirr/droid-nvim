@@ -206,13 +206,12 @@ function M.list_emulator_profiles(callback)
     end)
 end
 
---- Create an emulator from a profile via `android emulator create --profile=<p>`.
+--- Create an emulator from a profile via `android emulator create <profile>`.
 --- The CLI picks the AVD name and SDK image, so no extra prompting is needed.
 ---@param profile string profile name from `list_emulator_profiles`
 ---@param callback fun(ok: boolean, stdout: string)
 function M.create_emulator(profile, callback)
-    local action = ("emulator create --profile=%s"):format(profile)
-    run({ "emulator", "create", "--profile=" .. profile }, action, function(result)
+    run({ "emulator", "create", profile }, "emulator create " .. profile, function(result)
         callback(true, stdout_of(result))
     end, function(result)
         callback(false, stdout_of(result))
@@ -264,25 +263,52 @@ function M.run_apks(apks, opts, callback)
     end)
 end
 
+--- Parse `android docs search` output. Progress lines come first, then
+--- numbered results, each a title line followed by `URL: kb://…` and a
+--- snippet:
+---   1. Logcat
+---      URL: kb://android/tools/logcat
+---      Logcat is a command-line tool…
+---@param stdout string
+---@return { title: string, url: string }[]
+function M._parse_docs_search(stdout)
+    local results, title = {}, nil
+    for line in (stdout or ""):gmatch "[^\r\n]+" do
+        local numbered = line:match "^%s*%d+%.%s+(.+)$"
+        local url = line:match "^%s*URL:%s*(kb://%S+)"
+        if numbered then
+            title = vim.trim(numbered)
+        elseif url and title then
+            table.insert(results, { title = title, url = url })
+            title = nil
+        end
+    end
+    return results
+end
+
 --- Search the Android Knowledge Base via `android docs search "<query>"`.
---- Output is assumed to be one `kb://` URL per non-empty line. Lines that
---- don't start with `kb://` are passed through verbatim so a richer
---- "title\turl" format from future CLI versions still renders something.
 ---@param query string
----@param callback fun(results: string[])
+---@param callback fun(results: { title: string, url: string }[])
 function M.docs_search(query, callback)
     run({ "docs", "search", query }, "docs search", function(result)
-        local results = {}
-        for line in (result.stdout or ""):gmatch "[^\r\n]+" do
-            local trimmed = vim.trim(line)
-            if #trimmed > 0 then
-                table.insert(results, trimmed)
-            end
-        end
-        callback(results)
+        callback(M._parse_docs_search(result.stdout))
     end, function()
         callback {}
     end)
+end
+
+--- The article from `android docs fetch` output, without the progress lines
+--- and the Title/URL header that precede it. The title becomes a heading.
+---@param stdout string
+---@return string
+function M._parse_docs_fetch(stdout)
+    stdout = stdout or ""
+    local title = stdout:match "\nTitle:%s*([^\r\n]+)" or stdout:match "^Title:%s*([^\r\n]+)"
+    local body = stdout:match "\n%-%-%-%-+%s*\r?\n(.*)$"
+    if not body then
+        return stdout
+    end
+    return (title and ("# " .. title .. "\n\n") or "") .. body
 end
 
 --- Fetch a single KB document via `android docs fetch <kb-url>`.
@@ -290,7 +316,7 @@ end
 ---@param callback fun(ok: boolean, body: string)
 function M.docs_fetch(url, callback)
     run({ "docs", "fetch", url }, "docs fetch", function(result)
-        callback(true, stdout_of(result))
+        callback(true, M._parse_docs_fetch(result.stdout))
     end, function(result)
         callback(false, stdout_of(result))
     end)
