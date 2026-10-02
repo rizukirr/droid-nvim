@@ -8,73 +8,52 @@ M.current_filters = nil
 M.current_device_id = nil
 M.current_adb = nil
 
-local function build_logcat_command(adb, device_id, filters, callback)
-    local cmd = { adb, "-s", device_id, "logcat" }
+-- How often to look for a new app process while filtering by package.
+local PID_POLL_MS = 3000
 
-    local function finalize_command()
-        -- Apply tag and log level filtering (can be combined with PID)
-        if filters.tag then
-            table.insert(cmd, filters.tag .. ":" .. (filters.log_level or "v"))
-            table.insert(cmd, "*:S") -- silence all other tags
-        elseif filters.log_level and filters.log_level ~= "v" then
-            -- Only apply global log level if no specific tag
-            table.insert(cmd, "*:" .. string.upper(filters.log_level))
-        end
-
-        -- Build notification message
-        local msg_parts = {}
-        if filters.package then
-            if filters.package == "mine" then
-                local package_name = android.find_application_id()
-                table.insert(msg_parts, "package: " .. (package_name or "unknown"))
-            else
-                table.insert(msg_parts, "package: " .. filters.package)
-            end
-        end
-        if filters.tag then
-            table.insert(msg_parts, "tag: " .. filters.tag)
-        end
-        if filters.log_level and filters.log_level ~= "v" then
-            table.insert(msg_parts, "level: " .. filters.log_level .. "+")
-        end
-
-        if #msg_parts > 0 then
-            vim.notify("Filtering logcat for " .. table.concat(msg_parts, ", "), vim.log.levels.INFO)
-        end
-
-        callback(cmd)
-    end
-
-    -- Apply package filtering (requires async PID lookup)
+--- The package `filters` follow: the project's own for "mine", none for "none".
+---@return string|nil
+local function filter_package(filters)
     if filters.package == "mine" then
-        local package_name = android.find_application_id()
-        if package_name then
-            android.get_app_pid(adb, device_id, package_name, function(pid)
-                if pid then
-                    table.insert(cmd, "--pid=" .. pid)
-                else
-                    vim.notify("App not running, showing all logs", vim.log.levels.WARN)
-                end
-                finalize_command()
-            end)
-            return
-        else
-            vim.notify("Could not detect project package, showing all logs", vim.log.levels.WARN)
-        end
-    elseif filters.package and filters.package ~= "none" then
-        android.get_app_pid(adb, device_id, filters.package, function(pid)
-            if pid then
-                table.insert(cmd, "--pid=" .. pid)
-            else
-                vim.notify("Package " .. filters.package .. " not running, showing all logs", vim.log.levels.WARN)
-            end
-            finalize_command()
-        end)
-        return
+        return android.find_application_id()
     end
+    if filters.package and filters.package ~= "none" then
+        return filters.package
+    end
+    return nil
+end
 
-    -- No package filtering, apply other filters directly
-    finalize_command()
+local function build_logcat_command(adb, device_id, filters, pid)
+    local cmd = { adb, "-s", device_id, "logcat" }
+    if pid then
+        table.insert(cmd, "--pid=" .. pid)
+    end
+    if filters.tag then
+        table.insert(cmd, filters.tag .. ":" .. (filters.log_level or "v"))
+        table.insert(cmd, "*:S") -- silence all other tags
+    elseif filters.log_level and filters.log_level ~= "v" then
+        table.insert(cmd, "*:" .. string.upper(filters.log_level))
+    end
+    return cmd
+end
+
+local function notify_filters(filters, package)
+    local parts = {}
+    if filters.package and filters.package ~= "none" then
+        table.insert(parts, "package: " .. (package or "unknown"))
+    end
+    if filters.tag then
+        table.insert(parts, "tag: " .. filters.tag)
+    end
+    if filters.log_level and filters.log_level ~= "v" then
+        table.insert(parts, "level: " .. filters.log_level .. "+")
+    end
+    if filters.grep_pattern then
+        table.insert(parts, "text: " .. filters.grep_pattern)
+    end
+    if #parts > 0 then
+        vim.notify("Filtering logcat for " .. table.concat(parts, ", "), vim.log.levels.INFO)
+    end
 end
 
 -- Compare two filter sets to determine if they would produce the same logcat command
@@ -82,34 +61,14 @@ local function filters_equivalent(current, new)
     if not current or not new then
         return false
     end
-
-    -- Compare package filtering
-    if current.package ~= new.package then
-        return false
+    -- nil and "v" both mean no level filtering
+    local function level(l)
+        return l ~= "v" and l or nil
     end
-
-    -- Compare effective log levels (treat nil and "v" as equivalent to no filtering)
-    local function normalize_log_level(level)
-        return (level == "v" or level == nil) and nil or level
-    end
-
-    local current_level = normalize_log_level(current.log_level)
-    local new_level = normalize_log_level(new.log_level)
-    if current_level ~= new_level then
-        return false
-    end
-
-    -- Compare tag filtering
-    if current.tag ~= new.tag then
-        return false
-    end
-
-    -- Compare grep pattern filtering
-    if current.grep_pattern ~= new.grep_pattern then
-        return false
-    end
-
-    return true
+    return current.package == new.package
+        and level(current.log_level) == level(new.log_level)
+        and current.tag == new.tag
+        and current.grep_pattern == new.grep_pattern
 end
 
 --- The config filters with `overrides` laid over them.
@@ -119,198 +78,228 @@ local function merged_filters(overrides)
     return vim.tbl_extend("force", {}, config.get().logcat.filters or {}, overrides or {})
 end
 
-function M.apply_filters(user_filters, adb, device_id)
-    -- If device info is provided, use it directly (skip device selection)
-    if adb and device_id then
-        M.start(adb, device_id, nil, user_filters)
-        return
-    end
+---@type uv.uv_timer_t|nil
+local pid_timer = nil
 
-    -- If logcat is already running, apply filters to current session
-    if M.is_running() and M.current_adb and M.current_device_id then
-        local new_filters = merged_filters(user_filters)
-
-        -- Check if filters would actually change the logcat command
-        if filters_equivalent(M.current_filters, new_filters) then
-            vim.notify("Filters unchanged, logcat continues running", vim.log.levels.INFO)
-            -- Ensure window is visible with ownership
-            local buf_info = buffer.get_buffer_info()
-            if buf_info.buffer_id and not buffer.is_valid() then
-                buffer.get_or_create("logcat", nil, "logcat")
-            end
-            return
-        end
-
-        M.start(M.current_adb, M.current_device_id, nil, user_filters)
-    else
-        -- No existing logcat and no device provided, select from running devices only
-        local actions = require "droid.actions"
-        local tools = actions.get_required_tools()
-        if not tools then
-            return
-        end
-
-        android.pick_running_device(tools.adb, "Select device for logcat", function(device_id)
-            M.start(tools.adb, device_id, nil, user_filters)
-        end)
+local function stop_pid_watch()
+    if pid_timer then
+        pid_timer:stop()
+        pid_timer:close()
+        pid_timer = nil
     end
 end
 
--- Single source of truth for all logcat operations
--- Args:
---   adb: adb path
---   device_id: target device ID
---   mode: window mode (horizontal/vertical/float)
---   override_filters: optional filters to override config (temporary)
-function M.start(adb, device_id, mode, override_filters)
-    local cfg = config.get()
-    local active_filters = merged_filters(override_filters)
+local run
 
-    -- Enhanced reuse logic with ownership checking
-    local buf_info = buffer.get_buffer_info()
+--- Follow the app across restarts: when its process id changes, restart
+--- logcat on the new one, keeping the lines already shown.
+local function watch_pid(adb, device_id, package, pid, job_id)
+    stop_pid_watch()
+    local timer = assert(vim.uv.new_timer())
+    pid_timer = timer
+    local busy = false
+    timer:start(
+        PID_POLL_MS,
+        PID_POLL_MS,
+        vim.schedule_wrap(function()
+            if pid_timer ~= timer or busy then
+                return
+            end
+            if buffer.get_buffer_info().job_id ~= job_id then
+                stop_pid_watch()
+                return
+            end
+            busy = true
+            android.get_app_pid(adb, device_id, package, function(new_pid)
+                busy = false
+                if new_pid and new_pid ~= pid and pid_timer == timer and buffer.get_buffer_info().job_id == job_id then
+                    vim.notify("Following " .. package .. " process " .. new_pid, vim.log.levels.INFO)
+                    run(adb, device_id, nil, M.current_filters, { keep = true, pid = new_pid })
+                end
+            end)
+        end)
+    )
+end
+
+--- Start logcat with `filters`, replacing any running session.
+---@param opts? { keep?: boolean, pid?: string } keep the shown lines and use `pid`
+function run(adb, device_id, mode, filters, opts)
+    opts = opts or {}
+    local info = buffer.get_buffer_info()
     -- The panel is shared with Gradle: never kill a running task to show logs.
-    if buf_info.job_id and buf_info.type == "gradle" then
+    if info.job_id and info.type == "gradle" then
         vim.notify(
             "A Gradle task is running in the droid panel. Run :DroidLogcat when it finishes.",
             vim.log.levels.WARN
         )
         return
     end
-    if buf_info.job_id and M.current_adb == adb and M.current_device_id == device_id and buf_info.type == "logcat" then
-        -- Same device and logcat is running
 
-        if not override_filters or (type(override_filters) == "table" and next(override_filters) == nil) then
-            -- No filter override or empty table (DroidRun, DroidLogcat case) - always reuse
-            vim.notify("Reusing existing logcat session", vim.log.levels.INFO)
-
-            -- Ensure window is visible with ownership
-            if not buffer.is_valid() then
-                buffer.get_or_create("logcat", mode, "logcat")
-            end
-            return
-        else
-            -- Filter override provided (DroidLogcatFilter case) - check equivalence
-            if filters_equivalent(M.current_filters, active_filters) then
-                vim.notify("Logcat filters unchanged, reusing session", vim.log.levels.INFO)
-
-                -- Ensure window is visible with ownership
-                if not buffer.is_valid() then
-                    buffer.get_or_create("logcat", mode, "logcat")
-                end
-                return
-            else
-                vim.notify("Filter changes detected, restarting logcat", vim.log.levels.INFO)
-            end
-        end
-    end
-
-    M.current_filters = active_filters
+    M.current_filters = filters
     M.current_device_id = device_id
     M.current_adb = adb
+    local package = filter_package(filters)
 
-    -- Handle existing logcat session with ownership validation
-    if buf_info.job_id then
-        buffer.stop_current_job()
-        vim.notify("Applying filters...", vim.log.levels.INFO)
-    end
+    local function launch(pid)
+        local bufnr
+        if opts.keep and info.type == "logcat" and info.buffer_id and vim.api.nvim_buf_is_valid(info.buffer_id) then
+            buffer.stop_current_job()
+            bufnr = info.buffer_id
+        else
+            bufnr = buffer.get_or_create("logcat", mode)
+        end
 
-    -- Get or create centralized buffer with logcat ownership
-    local buf, win = buffer.get_or_create("logcat", mode, "logcat")
-
-    if not buf then
-        -- Buffer is busy with another operation
-        vim.notify("Buffer is busy. Logcat request queued.", vim.log.levels.WARN)
-        return
-    end
-
-    build_logcat_command(adb, device_id, active_filters, function(cmd)
+        local text = filters.grep_pattern
+        local job_id
         -- Output arrives in chunks split at newlines: data[1] continues the
         -- previous chunk's last line, and data[#data] is a line not yet ended.
         local pending = ""
-        local job_opts = {
-            stdout_buffered = false,
+        job_id = vim.fn.jobstart(build_logcat_command(adb, device_id, filters, pid), {
             on_stdout = function(_, data)
-                if not data then
+                -- Output a stopped job had already queued belongs to no buffer.
+                if buffer.get_buffer_info().job_id ~= job_id or not vim.api.nvim_buf_is_valid(bufnr) then
                     return
                 end
                 data[1] = pending .. data[1]
                 pending = table.remove(data)
 
                 local lines = data
-                if active_filters.grep_pattern then
+                if text then
                     lines = vim.tbl_filter(function(line)
-                        return line:match(active_filters.grep_pattern) ~= nil
+                        return line:find(text, 1, true) ~= nil
                     end, data)
                 end
                 if #lines == 0 then
                     return
                 end
 
-                local bufnr = buffer.get_buffer_info().buffer_id
-                if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
-                    return
-                end
+                -- Scroll along only while the cursor sits on the last line, so
+                -- you can read back while it streams.
+                local win = buffer.get_buffer_info().window_id
+                local shown = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr
+                local before = vim.api.nvim_buf_line_count(bufnr)
+                local follow = shown and vim.api.nvim_win_get_cursor(win)[1] >= before
+
                 local was_modifiable = vim.bo[bufnr].modifiable
                 vim.bo[bufnr].modifiable = true
-
                 -- A fresh buffer holds one empty line: replace it instead of appending after it.
-                local fresh = vim.api.nvim_buf_line_count(bufnr) == 1
-                    and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
+                local fresh = before == 1 and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
                 vim.api.nvim_buf_set_lines(bufnr, fresh and 0 or -1, -1, false, lines)
 
                 -- Ring-buffer trim: keep at most max_lines lines.
-                local max_lines = cfg.logcat.max_lines
-                if max_lines and max_lines > 0 then
-                    local line_count = vim.api.nvim_buf_line_count(bufnr)
-                    if line_count > max_lines then
-                        vim.api.nvim_buf_set_lines(bufnr, 0, line_count - max_lines, false, {})
-                    end
+                local max_lines = config.get().logcat.max_lines
+                local count = vim.api.nvim_buf_line_count(bufnr)
+                if max_lines and max_lines > 0 and count > max_lines then
+                    vim.api.nvim_buf_set_lines(bufnr, 0, count - max_lines, false, {})
+                    count = max_lines
                 end
-
                 vim.bo[bufnr].modifiable = was_modifiable
 
-                if buffer.is_valid() then
-                    buffer.scroll_to_bottom()
+                if follow then
+                    vim.api.nvim_win_set_cursor(win, { count, 0 })
                 end
             end,
-            on_exit = function(job_id)
-                if not buffer.release_job(job_id) then
+            on_exit = function(id)
+                if not buffer.release_job(id) then
                     return
                 end
+                stop_pid_watch()
                 M.current_device_id = nil
                 M.current_adb = nil
                 vim.notify("Logcat process exited", vim.log.levels.INFO)
             end,
-        }
-
-        local job_id = vim.fn.jobstart(cmd, job_opts)
+        })
         buffer.set_current_job(job_id)
+
+        if package then
+            watch_pid(adb, device_id, package, pid, job_id)
+        else
+            stop_pid_watch()
+        end
+    end
+
+    if opts.keep then
+        launch(opts.pid)
+        return
+    end
+
+    notify_filters(filters, package)
+    if not package then
+        if filters.package == "mine" then
+            vim.notify("Could not detect project package, showing all logs", vim.log.levels.WARN)
+        end
+        launch(nil)
+        return
+    end
+    android.get_app_pid(adb, device_id, package, function(pid)
+        if not pid then
+            vim.notify(package .. " not running, showing all logs until it starts", vim.log.levels.WARN)
+        end
+        launch(pid)
     end)
 end
 
+function M.apply_filters(user_filters, adb, device_id)
+    if adb and device_id then
+        M.start(adb, device_id, nil, user_filters)
+        return
+    end
+
+    if M.is_running() and M.current_adb and M.current_device_id then
+        M.start(M.current_adb, M.current_device_id, nil, user_filters)
+        return
+    end
+
+    -- No session and no device given: pick from running devices only.
+    local tools = require("droid.actions").get_required_tools()
+    if not tools then
+        return
+    end
+    android.pick_running_device(tools.adb, "Select device for logcat", function(id)
+        M.start(tools.adb, id, nil, user_filters)
+    end)
+end
+
+--- Show logcat for a device. A session already running on it is reused
+--- unless `override_filters` would change what it shows.
+---@param mode? "horizontal"|"vertical"|"float"
+---@param override_filters? table laid over config.logcat.filters
+function M.start(adb, device_id, mode, override_filters)
+    local active_filters = merged_filters(override_filters)
+
+    if M.is_running() and M.current_adb == adb and M.current_device_id == device_id then
+        if not override_filters or next(override_filters) == nil then
+            vim.notify("Reusing existing logcat session", vim.log.levels.INFO)
+            buffer.show(mode)
+            return
+        end
+        if filters_equivalent(M.current_filters, active_filters) then
+            vim.notify("Logcat filters unchanged, reusing session", vim.log.levels.INFO)
+            buffer.show(mode)
+            return
+        end
+        vim.notify("Filter changes detected, restarting logcat", vim.log.levels.INFO)
+    end
+
+    run(adb, device_id, mode, active_filters)
+end
+
 function M.stop()
-    local buf_info = buffer.get_buffer_info()
-    if buf_info.job_id and buf_info.type == "logcat" then
-        buffer.stop_current_job()
-        M.current_device_id = nil
-        M.current_adb = nil
-        vim.notify("Logcat stopped", vim.log.levels.INFO)
-        return true
-    else
+    if not M.is_running() then
         vim.notify("No active logcat process", vim.log.levels.WARN)
         return false
     end
+    buffer.stop_current_job()
+    stop_pid_watch()
+    M.current_device_id = nil
+    M.current_adb = nil
+    vim.notify("Logcat stopped", vim.log.levels.INFO)
+    return true
 end
 
--- Refresh logcat: stop current session and start fresh (for after app installation)
+--- Start a fresh session, clearing old logs, e.g. after installing the app.
 function M.refresh_logcat(adb, device_id, mode, filters)
-    -- Stop current logcat if running to clear old logs
-    M.stop()
-
-    -- Small delay to ensure clean stop, then start fresh logcat
-    vim.defer_fn(function()
-        M.start(adb, device_id, mode, filters)
-    end, 100)
+    run(adb, device_id, mode, merged_filters(filters))
 end
 
 function M.is_running()
@@ -329,11 +318,7 @@ function M.clear()
         vim.notify("Active buffer is not logcat", vim.log.levels.WARN)
         return
     end
-
-    local was_modifiable = vim.bo[buf_info.buffer_id].modifiable
-    vim.bo[buf_info.buffer_id].modifiable = true
-    vim.api.nvim_buf_set_lines(buf_info.buffer_id, 0, -1, false, {})
-    vim.bo[buf_info.buffer_id].modifiable = was_modifiable
+    buffer.clear_content()
 end
 
 return M

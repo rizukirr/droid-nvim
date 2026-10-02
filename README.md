@@ -136,6 +136,7 @@ require("droid").setup({
         filters = {
             package = "mine",              -- "mine" (auto-detect) or specific package
             log_level = "v",               -- v, d, i, w, e, f
+            grep_pattern = nil,            -- keep only lines containing this text
         },
     },
     android = {
@@ -159,7 +160,7 @@ droid.nvim provides complete LSP support for Android development:
 | Kotlin   | kotlin-lsp | Yes (Mason)  | 21+      |
 | Groovy   | groovy-language-server | Yes (Mason) | 11+ |
 
-Each LSP starts lazily when you first open a file of that type. If not installed, droid.nvim will auto-install it via Mason.
+Each LSP starts lazily when you first open a file of that type. If it is not installed, droid.nvim offers to install it via Mason, once per session, and starts it when the install finishes.
 
 #### LSP Detection Order
 
@@ -168,7 +169,7 @@ For each LSP, droid.nvim searches in this order:
 1. **Mason** — `~/.local/share/nvim/mason/packages/{lsp-name}/`
 2. **Environment variable** — `$KOTLIN_LSP_DIR` or `$GROOVY_LSP_DIR`
 3. **System PATH** — `kotlin-lsp` or `groovy-language-server`
-4. **Auto-install via Mason** — If not found, automatically installs
+4. **Install via Mason** — If not found, asks whether to install it
 
 Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`. (kotlin-lsp is exempt — its native launcher ships a bundled JBR.)
 
@@ -238,7 +239,7 @@ with Gradle Files"), not the `:DroidBuild` APK build.
 
 #### File renames
 
-`:DroidRenameFile` asks the server what a rename changes, applies those edits, moves the file, then saves what it touched. Renaming `PrayerRepository.kt` to `PrayerStore.kt` renames the class and fixes the imports in every file that names it.
+`:DroidRenameFile` asks the server what a rename changes, applies those edits, moves the file, then saves the files it changed. A file that already had unsaved edits is left unsaved for you to review. Renaming `PrayerRepository.kt` to `PrayerStore.kt` renames the class and fixes the imports in every file that names it.
 
 Renaming inside a file manager works too when that plugin speaks the LSP file operations. [oil.nvim](https://github.com/stevearc/oil.nvim) does through its `lsp_file_methods`, on by default. Its `autosave_changes` default leaves the edited files unsaved, so consider:
 
@@ -343,6 +344,8 @@ type name interpolated by the language server. Add your own via
 
 The jump commands accept modifiers to open a split, for example `:vert DroidGradleModule`.
 
+Gradle output runs in the droid panel. Closing the panel leaves the task running, and the panel opens again if the task fails.
+
 ### Device
 
 | Command | Description |
@@ -383,11 +386,13 @@ When `android_cli` is active (default `"auto"` + `android` on PATH), the emulato
 | `:DroidLogcatFilter log_level=d` | Filter by level |
 | `:DroidLogcatFilter tag=MyTag` | Filter by tag |
 | `:DroidLogcatFilter package=mine` | Filter by package |
-| `:DroidLogcatFilter grep=Exception` | Filter by pattern |
+| `:DroidLogcatFilter grep=Exception` | Keep lines containing the text |
 | `:DroidLogcatClear` | Clear the logcat buffer (keeps streaming) |
 | `:DroidLogcatStop` | Stop logcat |
 
 Combine filters: `:DroidLogcatFilter tag=MyTag log_level=d`
+
+The panel scrolls with new lines while the cursor is on the last line. Move up to read back, and it stops following until you return to the bottom. When filtering by package, logcat follows the app to its new process after a crash or relaunch, keeping the lines already shown.
 
 ### LSP Commands
 

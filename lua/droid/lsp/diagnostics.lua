@@ -71,7 +71,14 @@ local function has_annotation(bufnr, lnum, names)
         end
         -- The reported line itself may hold the declaration; above it only
         -- annotations and comments keep the run alive.
-        if i < #lines and line ~= "" and not line:match "^@" and not line:match "^//" and not line:match "^%*" and not line:match "^/%*" then
+        if
+            i < #lines
+            and line ~= ""
+            and not line:match "^@"
+            and not line:match "^//"
+            and not line:match "^%*"
+            and not line:match "^/%*"
+        then
             return false
         end
     end
@@ -135,35 +142,45 @@ function M.setup()
         return
     end
     original_set = vim.diagnostic.set
+    local original_reset = vim.diagnostic.reset
 
     vim.diagnostic.set = function(ns, bufnr, diagnostics, opts)
-        -- Only intercept for droid.nvim-managed filetypes
-        local ft = ""
-        if vim.api.nvim_buf_is_valid(bufnr) then
-            ft = vim.bo[bufnr].filetype
+        if bufnr == 0 then
+            bufnr = vim.api.nvim_get_current_buf()
         end
+        -- Only intercept for droid.nvim-managed filetypes
+        local ft = vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype or ""
         if ft == "kotlin" or ft == "groovy" then
-            -- Deep copy and store original diagnostics
-            if not stored[bufnr] then
-                stored[bufnr] = {}
-            end
-            stored[bufnr][ns] = vim.deepcopy(diagnostics)
+            -- The filters build new lists, so the unfiltered one can be kept as is.
+            stored[bufnr] = stored[bufnr] or {}
+            stored[bufnr][ns] = diagnostics
             diagnostics = apply_filters(diagnostics, ft, bufnr)
         end
         return original_set(ns, bufnr, diagnostics, opts)
     end
 
-    local grp = vim.api.nvim_create_augroup("DroidDiagnostics", { clear = true })
+    -- A client that stops resets its diagnostics. Forget them too, or the
+    -- next toggle would publish them again.
+    vim.diagnostic.reset = function(ns, bufnr)
+        if bufnr == 0 then
+            bufnr = vim.api.nvim_get_current_buf()
+        end
+        for b, namespaces in pairs(stored) do
+            if bufnr == nil or b == bufnr then
+                if ns == nil then
+                    stored[b] = nil
+                else
+                    namespaces[ns] = nil
+                end
+            end
+        end
+        return original_reset(ns, bufnr)
+    end
+
     vim.api.nvim_create_autocmd("BufDelete", {
-        group = grp,
+        group = vim.api.nvim_create_augroup("DroidDiagnostics", { clear = true }),
         callback = function(ev)
             stored[ev.buf] = nil
-        end,
-    })
-    vim.api.nvim_create_autocmd("VimLeavePre", {
-        group = grp,
-        callback = function()
-            stored = {}
         end,
     })
 end

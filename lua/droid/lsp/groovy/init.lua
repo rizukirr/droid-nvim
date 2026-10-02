@@ -3,6 +3,7 @@
 
 local config = require "droid.config"
 local install = require "droid.lsp.shared.install"
+local lsp_client = require "droid.lsp.client"
 local jre = require "droid.lsp.shared.jre"
 
 local M = {}
@@ -14,15 +15,17 @@ local initialised = false
 ---------------------------------------------------------------------------
 
 --- Find groovy-language-server package directory
---- Detection order: Mason -> GROOVY_LSP_DIR env -> System PATH -> Auto-install
+--- Detection order: Mason, GROOVY_LSP_DIR, system PATH, then an install offer
 ---@return { type: string, path: string }|nil
 local function find_groovy_lsp()
-    return install.find_or_install {
+    return install.find_or_install({
         mason_name = "groovy-language-server",
         env_var = "GROOVY_LSP_DIR",
         binaries = { "groovy-language-server" },
         display_name = "Groovy LSP",
-    }
+    }, function()
+        M.start(config.get())
+    end)
 end
 
 --- Find the groovy-language-server jar in the package directory
@@ -59,7 +62,7 @@ function M.start(cfg)
     -- Find groovy-language-server package
     local lsp_info = find_groovy_lsp()
     if not lsp_info then
-        -- Auto-install triggered, will retry on next file open
+        -- Missing: an install was offered, and the next groovy buffer retries.
         return
     end
 
@@ -122,18 +125,8 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
----@param filter? { bufnr?: number }
----@return vim.lsp.Client[]
-function M.get_clients(filter)
-    local opts = { name = "groovy_ls" }
-    if filter and filter.bufnr then
-        opts.bufnr = filter.bufnr
-    end
-    return vim.lsp.get_clients(opts)
-end
-
 function M.stop()
-    for _, c in ipairs(M.get_clients()) do
+    for _, c in ipairs(lsp_client.all { name = lsp_client.LSP_NAMES.groovy }) do
         c:stop()
     end
 end
@@ -146,10 +139,6 @@ function M.restart()
     end, 500)
 end
 
-function M.is_initialised()
-    return initialised
-end
-
 --- Setup Groovy LSP (called from main lsp/init.lua)
 ---@param cfg table
 function M.setup(cfg)
@@ -158,11 +147,11 @@ function M.setup(cfg)
         return
     end
 
-    -- Register FileType autocmd for lazy start
+    -- Start on the first groovy buffer. Not `once`: a start that finds no
+    -- server yet must retry on the next buffer, and `initialised` stops repeats.
     vim.api.nvim_create_autocmd("FileType", {
         group = vim.api.nvim_create_augroup("DroidGroovyLsp", { clear = true }),
         pattern = "groovy",
-        once = true,
         callback = function()
             M.start(cfg)
         end,

@@ -6,25 +6,19 @@ local M = {}
 --- URI schemes that LSPs can decompile
 M.schemes = { "jar", "jrt" }
 
---- Get the kotlin_ls client attached to the given buffer, if any
----@param bufnr number
----@return vim.lsp.Client|nil
-local function get_decompile_client(bufnr)
-    return vim.lsp.get_clients({ name = "kotlin_ls", bufnr = bufnr })[1]
-end
-
 --- Called from a BufReadCmd autocmd. Asks the appropriate LSP to decompile the URI
 --- and fills the buffer with the result.
 ---@param uri string e.g. "jar:///path/to/lib.jar!/com/Foo.class"
 function M.handle(uri)
     local buf = vim.api.nvim_get_current_buf()
 
-    -- The LSP may still be starting - poll until it attaches or we time out
+    -- The jar buffer has no filetype, so no server attaches to it: ask the
+    -- running kotlin_ls, polling while it may still be starting.
     local attempts, limit = 0, 50 -- 50 * 200ms = 10s
 
     local function poll()
         attempts = attempts + 1
-        local client = get_decompile_client(buf)
+        local client = require("droid.lsp.client").kotlin()
         if client then
             M._decompile(buf, uri, client)
             return
@@ -84,7 +78,7 @@ function M._decompile(buf, uri, client)
             vim.bo[buf].swapfile = false
             vim.bo[buf].filetype = lang:lower()
         end)
-    end, buf)
+    end)
 end
 
 --- Setup decompiler autocmds for jar:// and jrt:// protocols

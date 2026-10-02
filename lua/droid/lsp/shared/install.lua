@@ -1,5 +1,5 @@
 --- Mason auto-install utility for droid.nvim LSPs
---- Detection order: Mason → Environment Variable → System PATH → Auto-install via Mason
+--- Detection order: Mason, environment variable, system PATH, then an offer to install via Mason
 
 local M = {}
 
@@ -43,107 +43,95 @@ function M.is_mason_installed(package_name)
     return vim.fn.isdirectory(M.mason_path(package_name)) == 1
 end
 
---- Install a package via Mason (async)
----@param package_name string Mason package name
----@param display_name string User-friendly name for notifications
----@param on_complete? function Callback when installation completes (success: boolean)
-function M.install_via_mason(package_name, display_name, on_complete)
+-- Packages already offered this session, so a declined install is not asked
+-- again on every file open and one in flight is not started twice.
+local offered = {}
+
+--- Offer to install a package via Mason. Asks first, once per session.
+---@param opts { mason_name: string, env_var: string, display_name: string }
+---@param on_installed? fun() runs once the package is installed
+function M.install_via_mason(opts, on_installed)
+    if offered[opts.mason_name] then
+        return
+    end
+    offered[opts.mason_name] = true
+
     if not M.has_mason() then
         vim.notify(
             string.format(
                 "droid.nvim: %s not found and Mason is not available.\n"
                     .. "Install mason.nvim or install %s manually:\n"
-                    .. "  Set %s_DIR environment variable\n"
+                    .. "  Set the %s environment variable\n"
                     .. "  or add %s to system PATH",
-                display_name,
-                package_name,
-                package_name:upper():gsub("-", "_"),
-                package_name
+                opts.display_name,
+                opts.mason_name,
+                opts.env_var,
+                opts.mason_name
             ),
             vim.log.levels.ERROR
         )
-        if on_complete then
-            on_complete(false)
-        end
         return
     end
 
-    local registry = require "mason-registry"
+    local ok, pkg = pcall(require("mason-registry").get_package, opts.mason_name)
+    if not ok or not pkg then
+        vim.notify(
+            string.format(
+                "droid.nvim: Package '%s' not found in Mason registry.\n"
+                    .. "Try running :MasonUpdate first, or install manually.",
+                opts.mason_name
+            ),
+            vim.log.levels.ERROR
+        )
+        return
+    end
 
-    -- Refresh registry if needed
-    if not registry.is_installed(package_name) then
-        local ok, pkg = pcall(registry.get_package, package_name)
-        if not ok or not pkg then
-            vim.notify(
-                string.format(
-                    "droid.nvim: Package '%s' not found in Mason registry.\n"
-                        .. "Try running :MasonUpdate first, or install manually.",
-                    package_name
-                ),
-                vim.log.levels.ERROR
-            )
-            if on_complete then
-                on_complete(false)
-            end
+    local install = "Install with Mason"
+    vim.ui.select({ install, "Not now" }, { prompt = opts.display_name .. " is not installed" }, function(choice)
+        if choice ~= install then
             return
         end
-
-        vim.notify(string.format("droid.nvim: Installing %s via Mason...", display_name), vim.log.levels.INFO)
-
-        pkg:install():once("closed", function()
-            vim.schedule(function()
-                if pkg:is_installed() then
+        vim.notify(string.format("droid.nvim: Installing %s via Mason...", opts.display_name), vim.log.levels.INFO)
+        pkg:install():once(
+            "closed",
+            vim.schedule_wrap(function()
+                if not pkg:is_installed() then
                     vim.notify(
-                        string.format("droid.nvim: %s installed successfully. Reopen file to start LSP.", display_name),
-                        vim.log.levels.INFO
-                    )
-                    if on_complete then
-                        on_complete(true)
-                    end
-                else
-                    vim.notify(
-                        string.format("droid.nvim: Failed to install %s via Mason.", display_name),
+                        string.format("droid.nvim: Failed to install %s via Mason.", opts.display_name),
                         vim.log.levels.ERROR
                     )
-                    if on_complete then
-                        on_complete(false)
-                    end
+                    return
+                end
+                vim.notify(string.format("droid.nvim: %s installed", opts.display_name), vim.log.levels.INFO)
+                if on_installed then
+                    on_installed()
                 end
             end)
-        end)
-    else
-        -- Already installed
-        if on_complete then
-            on_complete(true)
-        end
-    end
+        )
+    end)
 end
 
---- Ensure a package is installed, auto-install if not found
---- Detection order: Mason → ENV → PATH → Auto-install
+--- Find a package, offering to install it when it is missing.
+--- Detection order: Mason, then the environment variable, then PATH.
 ---@param opts { mason_name: string, env_var: string, binaries: string[], display_name: string }
----@return { type: "mason"|"env"|"binary", path: string }|nil
-function M.find_or_install(opts)
-    -- 1. Check Mason
+---@param on_installed? fun() runs after an install this call offered
+---@return { type: "mason"|"env"|"binary", path: string }|nil nil while missing
+function M.find_or_install(opts, on_installed)
     if M.is_mason_installed(opts.mason_name) then
         return { type = "mason", path = M.mason_path(opts.mason_name) }
     end
 
-    -- 2. Check environment variable
     local env = vim.env[opts.env_var]
     if env and vim.fn.isdirectory(env) == 1 then
         return { type = "env", path = env }
     end
 
-    -- 3. Check system PATH
     local bin = M.first_executable(opts.binaries)
     if bin then
         return { type = "binary", path = bin }
     end
 
-    -- 4. Auto-install via Mason (async, returns nil for this attempt)
-    M.install_via_mason(opts.mason_name, opts.display_name)
-
+    M.install_via_mason(opts, on_installed)
     return nil
 end
 

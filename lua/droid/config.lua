@@ -103,6 +103,12 @@ function M.setup(opts)
     opts = opts or {}
     validate_config(opts)
     M.config = vim.tbl_deep_extend("force", M.config, opts)
+    -- Deep-extend merges maps, so the default Composable rule would survive a
+    -- user's `{}`. The user's map replaces it instead.
+    local kotlin = opts.lsp and opts.lsp.kotlin
+    if kotlin and kotlin.suppress_when_annotated then
+        M.config.lsp.kotlin.suppress_when_annotated = kotlin.suppress_when_annotated
+    end
 end
 
 function M.get()

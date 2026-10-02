@@ -10,7 +10,7 @@ local M = {}
 ---@return number|nil major_version
 ---@return string|nil raw_output
 local function get_version(java_bin)
-    local proc = vim.system({ java_bin, "-version" }, { text = true }):wait()
+    local proc = vim.system({ java_bin, "-version" }, { text = true }):wait(10000)
     local raw = (proc.stderr or "") .. (proc.stdout or "")
     if proc.code ~= 0 or raw == "" then
         return nil, raw
