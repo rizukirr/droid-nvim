@@ -377,160 +377,6 @@ function M.get_devices_with_avds(adb, callback)
     end)
 end
 
--- Check if device is fully booted and ready for app installation
-local function is_device_boot_completed(adb, device_id, callback)
-    vim.system({ adb, "-s", device_id, "shell", "getprop", "sys.boot_completed" }, {}, function(obj)
-        local boot_completed = vim.trim(obj.stdout or "")
-        local is_ready = boot_completed == "1"
-
-        if is_ready then
-            -- Additional check: ensure package manager is ready
-            vim.system({ adb, "-s", device_id, "shell", "pm", "list", "packages" }, {}, function(pm_obj)
-                local pm_ready = pm_obj.code == 0
-                vim.schedule(function()
-                    callback(pm_ready)
-                end)
-            end)
-        else
-            vim.schedule(function()
-                callback(false)
-            end)
-        end
-    end)
-end
-
---- Wait for a newly started emulator to come online and finish booting.
---- Devices in `known` were online before the start and are ignored, so a
---- connected phone is never mistaken for the new emulator. `callback` runs
---- exactly once, unless the returned `cancel` ends the wait first.
----@param adb string
----@param known table<string, true> ids online before the emulator started
----@param callback fun(device_id: string|nil)
----@return fun(): boolean cancel ends the wait without calling `callback`, false when it had already ended
-function M.wait_for_device_ready(adb, known, callback)
-    local cfg = config.get()
-
-    local timer = vim.uv.new_timer()
-    if timer == nil then
-        return function()
-            return false
-        end
-    end
-
-    local start_time = vim.uv.now()
-    local current_device_id = nil
-    local busy = false -- a check is in flight; skip ticks until it returns
-    local done = false
-
-    local function finish()
-        if done then
-            return false
-        end
-        done = true
-        timer:stop()
-        timer:close()
-        return true
-    end
-
-    timer:start(0, cfg.android.boot_check_interval_ms or 3000, function()
-        if done then
-            return
-        end
-
-        local timeout = cfg.android.boot_complete_timeout_ms or 120000
-        if vim.uv.now() - start_time > timeout then
-            finish()
-            vim.schedule(function()
-                vim.notify("Timed out waiting for device to boot completely", vim.log.levels.ERROR)
-                callback(nil)
-            end)
-            return
-        end
-
-        if busy then
-            return
-        end
-        busy = true
-
-        if not current_device_id then
-            -- First phase: wait for device to appear in adb devices
-            M.get_running_devices(adb, function(devices)
-                busy = false
-                for _, d in ipairs(devices) do
-                    if not known[d.id] and d.id:match "^emulator%-" then
-                        current_device_id = d.id
-                        return
-                    end
-                end
-            end)
-        else
-            -- Second phase: wait for boot completion
-            is_device_boot_completed(adb, current_device_id, function(is_ready)
-                busy = false
-                if is_ready and finish() then
-                    callback(current_device_id)
-                end
-            end)
-        end
-    end)
-
-    return finish
-end
-
---- Pickable targets: every running device, then each AVD that isn't
---- already running. A running emulator is labelled with its AVD name.
-function M.get_all_targets(adb, emulator, callback)
-    M.get_devices_with_avds(adb, function(devices)
-        local targets = {}
-        local running = {}
-
-        for _, d in ipairs(devices) do
-            local label = d.avd and (d.avd .. " (" .. d.id .. ")") or d.name
-            table.insert(targets, { type = "device", id = d.id, name = "Device: " .. label })
-            if d.avd then
-                running[d.avd] = true
-            end
-        end
-
-        if vim.fn.executable(emulator) == 1 then
-            for _, avd in ipairs(list_avds(emulator)) do
-                if not running[avd] then
-                    table.insert(targets, { type = "avd", name = "Emulator: " .. avd, avd = avd })
-                end
-            end
-        else
-            vim.notify("Emulator executable not found at " .. emulator, vim.log.levels.WARN)
-        end
-
-        callback(targets)
-    end)
-end
-
-function M.choose_target(adb, emulator, callback)
-    local cfg = config.get()
-    M.get_all_targets(adb, emulator, function(targets)
-        if #targets == 0 then
-            vim.notify("No devices or emulators available", vim.log.levels.ERROR)
-            callback(nil)
-            return
-        end
-
-        if #targets == 1 and cfg.android.auto_select_single_target then
-            callback(targets[1])
-            return
-        end
-
-        vim.ui.select(targets, {
-            prompt = "Select device/emulator",
-            format_item = function(item)
-                return item.name
-            end,
-        }, function(choice)
-            callback(choice)
-        end)
-    end)
-end
-
 --- Start `avd` as a job of this Neovim, so it stops when Neovim exits. When
 --- the emulator exits nonzero, `on_fail(msg)` gets its last FATAL or ERROR
 --- line, else its last non-empty line.
@@ -969,14 +815,18 @@ function M.stop_emulator()
     end)
 end
 
+M.NO_DEVICE_MESSAGE = "No running device or emulator. Connect a device or start one with :DroidEmulator"
+
 --- Pick a running device, auto-selecting the only one when the config allows.
+--- `on_pick(nil)` when there is none or the picker is dismissed.
 ---@param adb string
 ---@param prompt string
----@param on_pick fun(device_id: string)
+---@param on_pick fun(device_id: string|nil)
 function M.pick_running_device(adb, prompt, on_pick)
     M.get_running_devices(adb, function(devices)
         if #devices == 0 then
-            vim.notify("No devices available", vim.log.levels.ERROR)
+            vim.notify(M.NO_DEVICE_MESSAGE, vim.log.levels.ERROR)
+            on_pick(nil)
             return
         end
         if #devices == 1 and config.get().android.auto_select_single_target then
@@ -989,9 +839,7 @@ function M.pick_running_device(adb, prompt, on_pick)
                 return d.name .. " (" .. d.id .. ")"
             end,
         }, function(choice)
-            if choice then
-                on_pick(choice.id)
-            end
+            on_pick(choice and choice.id)
         end)
     end)
 end
@@ -1010,6 +858,9 @@ local function run_adb_on_device(args_fn, success_msg, error_msg)
     end
 
     M.pick_running_device(adb, "Select device:", function(device_id)
+        if not device_id then
+            return
+        end
         local args = args_fn(adb, device_id, package)
         vim.system(args, {}, function(obj)
             vim.schedule(function()
@@ -1053,6 +904,9 @@ function M.mirror()
     end
 
     M.pick_running_device(adb, "Select device to mirror:", function(device_id)
+        if not device_id then
+            return
+        end
         vim.notify("Starting scrcpy for " .. device_id, vim.log.levels.INFO)
         vim.fn.jobstart({ "scrcpy", "-s", device_id }, {
             on_exit = vim.schedule_wrap(function(_, exit_code)

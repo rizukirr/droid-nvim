@@ -60,8 +60,6 @@ local defaults = {
         auto_select_single_target = true,
         android_home = nil,
         android_avd_home = nil,
-        boot_complete_timeout_ms = 120000,
-        boot_check_interval_ms = 3000,
         logcat_startup_delay_ms = 2000,
     },
     -- android-cli backend. "auto" uses the `android` binary if it's on

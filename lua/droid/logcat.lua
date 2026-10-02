@@ -253,6 +253,9 @@ function M.apply_filters(user_filters, adb, device_id)
         return
     end
     android.pick_running_device(tools.adb, "Select device for logcat", function(id)
+        if not id then
+            return
+        end
         M.start(tools.adb, id, nil, user_filters)
     end)
 end

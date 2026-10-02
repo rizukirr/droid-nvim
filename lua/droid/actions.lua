@@ -92,65 +92,16 @@ end
 
 function M.get_required_tools()
     local adb = android.get_adb_path()
-    local emulator = android.get_emulator_path()
-
-    if not adb or not emulator then
+    if not adb then
         vim.notify("Android SDK tools not found. Check ANDROID_SDK_ROOT.", vim.log.levels.ERROR)
         return nil
     end
-
-    return { adb = adb, emulator = emulator }
+    return { adb = adb }
 end
 
-function M.select_target(tools, callback)
-    if not tools then
-        return
-    end
-    android.choose_target(tools.adb, tools.emulator, callback)
-end
-
---- Start `avd`, wait until the new emulator has booted, then call
---- `on_ready(device_id)`, or `on_ready(nil)` when it never came up.
---- An AVD that is already running is reused without starting anything.
---- A start that fails before boot ends the wait at once.
-local function start_avd(tools, avd, on_ready)
-    android.get_devices_with_avds(tools.adb, function(devices)
-        local known = {}
-        for _, d in ipairs(devices) do
-            if d.avd == avd then
-                on_ready(d.id)
-                return
-            end
-            known[d.id] = true
-        end
-
-        vim.notify("Starting emulator...", vim.log.levels.INFO)
-        local cancel
-        local function on_fail(msg)
-            if cancel and cancel() then
-                vim.notify("Emulator failed to start: " .. msg, vim.log.levels.ERROR)
-                on_ready(nil)
-            end
-        end
-
-        if cli.prefers "emulator" then
-            android.start_emulator_via_cli(avd, on_fail)
-        else
-            android.start_emulator(tools.emulator, avd, on_fail)
-        end
-
-        cancel = android.wait_for_device_ready(tools.adb, known, function(device_id)
-            if not device_id then
-                vim.notify("Failed to start emulator or device not ready", vim.log.levels.ERROR)
-            end
-            on_ready(device_id)
-        end)
-    end)
-end
-
--- Exposed for tests/android_spec.lua.
-M._start_avd = start_avd
-
+--- Pick a variant and a running device, then build, install, launch and show
+--- logcat. Starting an emulator is :DroidEmulator's job, so with nothing
+--- running this stops before the slow variant discovery.
 function M.build_and_run(on_complete)
     local tools = M.get_required_tools()
     if not tools then
@@ -158,29 +109,26 @@ function M.build_and_run(on_complete)
         return
     end
 
-    gradle.pick_variant("install", function(picked)
-        if not picked then
+    android.get_running_devices(tools.adb, function(devices)
+        if #devices == 0 then
+            vim.notify(android.NO_DEVICE_MESSAGE, vim.log.levels.ERROR)
             call(on_complete)
             return
         end
 
-        M.select_target(tools, function(target)
-            if not target then
+        gradle.pick_variant("install", function(picked)
+            if not picked then
                 call(on_complete)
                 return
             end
 
-            if target.type == "device" then
-                execute_build_install(tools, target.id, on_complete)
-            elseif target.type == "avd" then
-                start_avd(tools, target.avd, function(device_id)
-                    if not device_id then
-                        call(on_complete)
-                        return
-                    end
-                    execute_build_install(tools, device_id, on_complete)
-                end)
-            end
+            android.pick_running_device(tools.adb, "Select device to run on", function(device_id)
+                if not device_id then
+                    call(on_complete)
+                    return
+                end
+                execute_build_install(tools, device_id, on_complete)
+            end)
         end)
     end)
 end

@@ -133,70 +133,6 @@ end)
 vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone transport_id:1"
 vim.env.FAKE_AVD_NAME = "Medium_Phone"
 
-check("a running AVD is listed once, as a device", function()
-    local targets
-    android.get_all_targets(adb, emulator, function(t)
-        targets = t
-    end)
-    vim.wait(2000, function()
-        return targets ~= nil
-    end)
-    local devices, avds = {}, {}
-    for _, t in ipairs(targets or {}) do
-        table.insert(t.type == "device" and devices or avds, t)
-    end
-    assert(#devices == 1, vim.inspect(targets))
-    assert(devices[1].name:find("Medium_Phone", 1, true), vim.inspect(targets))
-    assert(devices[1].name:find("emulator-5554", 1, true), vim.inspect(targets))
-    assert(#avds == 1 and avds[1].avd == "Medium_Tablet", vim.inspect(targets))
-end)
-
-check("start_avd reuses a running AVD", function()
-    os.remove(vim.env.FAKE_STARTED)
-    local got
-    actions._start_avd({ adb = adb, emulator = emulator }, "Medium_Phone", function(id)
-        got = id or false
-    end)
-    vim.wait(2000, function()
-        return got ~= nil
-    end)
-    assert(got == "emulator-5554", tostring(got))
-    assert(not vim.uv.fs_stat(vim.env.FAKE_STARTED), "an emulator was started")
-end)
-
-check("wait_for_device_ready calls back once when a check outlasts the interval", function()
-    local cfg = require("droid.config").get()
-    cfg.android.boot_check_interval_ms = 500
-    vim.env.FAKE_DEVICES = "emulator-5556\tdevice product:x model:x"
-    vim.env.FAKE_BOOT_SLEEP = "1.5"
-    local calls = {}
-    android.wait_for_device_ready(adb, {}, function(id)
-        table.insert(calls, id or false)
-    end)
-    vim.wait(6000, function()
-        return false
-    end)
-    vim.env.FAKE_BOOT_SLEEP = nil
-    cfg.android.boot_check_interval_ms = 3000
-    assert(#calls == 1 and calls[1] == "emulator-5556", vim.inspect(calls))
-end)
-
-check("a failed emulator start ends the wait and shows its error", function()
-    vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone"
-    vim.env.FAKE_AVD_NAME = "Medium_Phone"
-    notes = {}
-    local got
-    require("droid.actions")._start_avd({ adb = adb, emulator = emulator }, "Medium_Tablet", function(id)
-        got = id or false
-    end)
-    vim.wait(5000, function()
-        return got ~= nil
-    end)
-    assert(got == false, tostring(got))
-    local shown = table.concat(notes, "\n")
-    assert(shown:find("FATAL", 1, true), shown)
-end)
-
 -- A Gradle project whose gradlew appends each call to FAKE_GRADLE_LOG,
 -- prints FAKE_GRADLE_TASKS for `tasks --group=install`, and for install
 -- tasks prints FAKE_INSTALL_OUTPUT and exits FAKE_INSTALL_EXIT.
@@ -381,7 +317,7 @@ check("a failed install shows Gradle's output", function()
     assert(text:find("Ambiguous matches", 1, true), text)
 end)
 
-check(":DroidRun asks for a variant, then a device, then installs it in one Gradle run", function()
+check(":DroidRun asks for a variant, then a running device, then installs it in one Gradle run", function()
     vim.fn.chdir(flavored_gradle)
     vim.env.FAKE_GRADLE_TASKS = minbar_tasks
     commands.setup_commands()
@@ -390,12 +326,12 @@ check(":DroidRun asks for a variant, then a device, then installs it in one Grad
     assert(vim.fn.exists ":DroidEmulatorCreate" == 0, ":DroidEmulatorCreate still exists")
     assert(vim.fn.exists ":DroidEmulator" == 2, ":DroidEmulator is missing")
     assert(require("droid").install_only == nil, "install_only is still exported")
-    vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone"
-    vim.env.FAKE_AVD_NAME = "Medium_Phone"
+    -- Two devices, so the device picker shows instead of auto-selecting one.
+    vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:sdk_gphone model:sdk_gphone\\nR58M\tdevice model:Pixel"
     gradle.selected_variant = "Debug"
     selects = {}
     answers["Select build variant:"] = "DemoDebug"
-    answers["Select device/emulator"] = function(items)
+    answers["Select device to run on"] = function(items)
         return items[1]
     end
     local before = #gradle_calls()
@@ -407,7 +343,7 @@ check(":DroidRun asks for a variant, then a device, then installs it in one Grad
     local calls = vim.list_slice(gradle_calls(), before + 1)
     assert(vim.deep_equal(calls, { "installDemoDebug" }), vim.inspect(calls))
     assert(selects[1] and selects[1].prompt == "Select build variant:", vim.inspect(selects))
-    assert(selects[2] and selects[2].prompt == "Select device/emulator", vim.inspect(selects))
+    assert(selects[2] and selects[2].prompt == "Select device to run on", vim.inspect(selects))
 end)
 
 local buffer = require "droid.buffer"
@@ -478,4 +414,24 @@ check("logcat follows the app to its new process", function()
     assert(buffer.current_job_id ~= first and logcat.is_running(), "logcat did not restart on the new pid")
     vim.env.FAKE_PID = nil
     logcat.stop()
+end)
+
+check(":DroidRun with nothing running points to :DroidEmulator and frees the command", function()
+    vim.fn.chdir(flavored_gradle)
+    vim.env.FAKE_DEVICES = ""
+    notes = {}
+    selects = {}
+    local before = #gradle_calls()
+    vim.cmd "DroidRun"
+    vim.wait(3000, function()
+        return notified ":DroidEmulator"
+    end)
+    assert(notified "No running device or emulator", table.concat(notes, "\n"))
+    assert(#selects == 0 and #gradle_calls() == before, "DroidRun went on without a device")
+    notes = {}
+    vim.cmd "DroidRun"
+    vim.wait(3000, function()
+        return notified ":DroidEmulator"
+    end)
+    assert(not notified "already running", "the command guard was left set")
 end)
