@@ -76,10 +76,6 @@ function M.setup_commands()
         end)
     end, { nargs = "+" })
 
-    vim.api.nvim_create_user_command("DroidDevices", function()
-        actions.show_devices()
-    end, {})
-
     vim.api.nvim_create_user_command("DroidLogcat", function()
         check_guard("DroidLogcat", function()
             actions.logcat_only()
@@ -153,16 +149,13 @@ function M.setup_commands()
         nav.version(opts.mods)
     end, {})
 
+    -- The picker's "+ Create New Emulator" entry creates an AVD.
     vim.api.nvim_create_user_command("DroidEmulator", function()
         android.launch_emulator()
     end, {})
 
     vim.api.nvim_create_user_command("DroidEmulatorStop", function()
         android.stop_emulator()
-    end, {})
-
-    vim.api.nvim_create_user_command("DroidEmulatorCreate", function()
-        android.create_emulator()
     end, {})
 
     -- ADB quick actions

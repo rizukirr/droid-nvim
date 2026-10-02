@@ -15,7 +15,6 @@ end
 
 M.build_and_run = actions.build_and_run
 M.logcat_only = actions.logcat_only
-M.show_devices = actions.show_devices
 M.logcat_stop = logcat.stop
 
 return M
