@@ -206,7 +206,7 @@ local function gradle_project(name)
         "#!/bin/sh",
         'echo "$*" >> "$FAKE_GRADLE_LOG"',
         'case "$*" in',
-        '"-q tasks --group=install") printf "%b\\n" "$FAKE_GRADLE_TASKS" ;;',
+        '"tasks --group=install") printf "%b\\n" "$FAKE_GRADLE_TASKS" ;;',
         'install*) printf "%s\\n" "$FAKE_INSTALL_OUTPUT"; exit "${FAKE_INSTALL_EXIT:-0}" ;;',
         "slow) sleep 1 ;;",
         "esac",
@@ -308,7 +308,7 @@ check("pick_variant lists the last pick first", function()
 end)
 
 check("pick_variant discovers variants once per project until sync", function()
-    local tasks_call = "-q tasks --group=install"
+    local tasks_call = "tasks --group=install"
     assert(count(gradle_calls(), tasks_call) == 1, vim.inspect(gradle_calls()))
     local synced
     gradle.sync(function()
