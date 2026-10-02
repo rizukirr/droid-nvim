@@ -1,4 +1,5 @@
 local config = require "droid.config"
+local buffer = require "droid.buffer"
 
 local M = {}
 
@@ -723,48 +724,70 @@ local function prompt_avd_name(image_pkg, device_name, callback)
     end)
 end
 
-local function run_avd_create(avdmanager, name, image_pkg, device_id)
-    local cmd = {
-        avdmanager,
-        "create",
-        "avd",
-        "-n",
-        name,
-        "-k",
-        image_pkg,
-        "-d",
-        device_id,
-    }
+--- The last non-empty line of task output, for a one-line notification.
+---@param lines string[]
+---@return string
+local function last_line(lines)
+    for i = #lines, 1, -1 do
+        local line = vim.trim(lines[i])
+        if line ~= "" then
+            return line
+        end
+    end
+    return ""
+end
 
-    vim.notify("Creating emulator: " .. name .. "...", vim.log.levels.INFO)
-
-    local job_id = vim.fn.jobstart(cmd, {
-        env = emulator_env(),
-        stdin = "pipe",
-        on_stdout = function() end,
-        on_stderr = function(_, data)
-            if data then
-                for _, line in ipairs(data) do
-                    if line:match "Error" or line:match "error" then
-                        vim.schedule(function()
-                            vim.notify("avdmanager: " .. line, vim.log.levels.ERROR)
-                        end)
+--- Start `avd` through android-cli, which returns once the emulator has
+--- booted. The CLI exits 0 even when the start fails ("Device x doesn't
+--- exist"), so the start counts only once adb lists the AVD.
+---@param avd string
+---@param on_fail? fun(msg: string)
+---@param on_started? fun()
+function M.start_emulator_via_cli(avd, on_fail, on_started)
+    local cli = require "droid.backends.android_cli"
+    cli.start_emulator(avd, on_fail, function(stdout)
+        local adb = M.get_adb_path()
+        if not adb then
+            if on_started then
+                on_started()
+            end
+            return
+        end
+        M.get_devices_with_avds(adb, function(devices)
+            for _, d in ipairs(devices) do
+                if d.avd == avd then
+                    if on_started then
+                        on_started()
                     end
+                    return
                 end
             end
-        end,
-        on_exit = vim.schedule_wrap(function(_, exit_code)
-            if exit_code == 0 then
-                vim.notify("Emulator created: " .. name, vim.log.levels.INFO)
-            else
-                vim.notify("Failed to create emulator: " .. name, vim.log.levels.ERROR)
+            if on_fail then
+                local detail = vim.trim(stdout)
+                on_fail(detail ~= "" and detail or "it did not come online")
             end
-        end),
-    })
+        end)
+    end)
+end
 
-    if job_id > 0 then
-        -- Answers "Do you wish to create a custom hardware profile?". The pipe
-        -- holds it until avdmanager asks.
+local function run_avd_create(avdmanager, name, image_pkg, device_id)
+    local cmd = { avdmanager, "create", "avd", "-n", name, "-k", image_pkg, "-d", device_id }
+
+    -- The panel shows avdmanager's output as it runs.
+    local job_id = buffer.run_task(cmd, { env = emulator_env() }, function(ok, _, lines)
+        if ok then
+            vim.notify(("Emulator created: %s. Start it with :DroidEmulator"):format(name), vim.log.levels.INFO)
+        else
+            local detail = last_line(lines)
+            vim.notify(
+                "Failed to create emulator " .. name .. (detail ~= "" and (": " .. detail) or ""),
+                vim.log.levels.ERROR
+            )
+        end
+    end)
+    if job_id then
+        -- Answers "Do you wish to create a custom hardware profile?". The
+        -- terminal holds it until avdmanager asks.
         vim.fn.chansend(job_id, "no\n")
     end
 end
@@ -784,12 +807,35 @@ local function create_emulator_via_cli(cli)
             if not choice then
                 return
             end
-            vim.notify("Creating emulator from profile: " .. choice, vim.log.levels.INFO)
-            cli.create_emulator(choice, function(ok, stdout)
-                if ok then
-                    local detail = vim.trim(stdout)
-                    vim.notify("Emulator created" .. (#detail > 0 and ("\n" .. detail) or ""), vim.log.levels.INFO)
+            -- The panel shows the CLI's output as it runs. The CLI exits 0 even
+            -- when it creates nothing, so compare the AVD list before and after.
+            local cmd = cli.argv { "emulator", "create", choice }
+            if not cmd then
+                return
+            end
+            cli.list_avds(function(before)
+                local existed = {}
+                for _, avd in ipairs(before) do
+                    existed[avd] = true
                 end
+                buffer.run_task(cmd, nil, function(_, _, lines)
+                    cli.list_avds(function(after)
+                        for _, avd in ipairs(after) do
+                            if not existed[avd] then
+                                vim.notify(
+                                    ("Emulator created: %s. Start it with :DroidEmulator"):format(avd),
+                                    vim.log.levels.INFO
+                                )
+                                return
+                            end
+                        end
+                        local detail = last_line(lines)
+                        vim.notify(
+                            "Emulator not created" .. (detail ~= "" and (": " .. detail) or ""),
+                            vim.log.levels.ERROR
+                        )
+                    end)
+                end)
             end)
         end)
     end)
@@ -833,7 +879,6 @@ local function prompt_and_launch(avds, launch_fn)
             M.create_emulator()
             return
         end
-        vim.notify("Launching Emulator: " .. choice, vim.log.levels.INFO)
         launch_fn(choice)
     end)
 end
@@ -843,7 +888,14 @@ function M.launch_emulator()
     if cli.prefers "emulator" then
         cli.list_avds(function(avds)
             prompt_and_launch(avds, function(choice)
-                cli.start_emulator(choice)
+                -- Not in the panel: a task replacing it there would kill the
+                -- emulator along with the CLI.
+                vim.notify(("Starting emulator %s, this can take a minute..."):format(choice), vim.log.levels.INFO)
+                M.start_emulator_via_cli(choice, function(msg)
+                    vim.notify(("Emulator %s failed to start: %s"):format(choice, msg), vim.log.levels.ERROR)
+                end, function()
+                    vim.notify("Emulator started: " .. choice, vim.log.levels.INFO)
+                end)
             end)
         end)
         return
@@ -855,6 +907,7 @@ function M.launch_emulator()
     end
 
     prompt_and_launch(M.get_available_avds(emulator), function(choice)
+        vim.notify("Launching Emulator: " .. choice, vim.log.levels.INFO)
         M.start_emulator(emulator, choice, function(msg)
             vim.notify("Failed to launch Emulator " .. choice .. ": " .. msg, vim.log.levels.ERROR)
         end)

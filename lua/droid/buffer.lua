@@ -1,5 +1,6 @@
--- One panel window shared by logcat and gradle output. Logcat reuses its
--- buffer, and every gradle task gets a fresh terminal buffer. Closing the
+-- One panel window shared by logcat and task output (Gradle, emulator
+-- creation). Logcat reuses its buffer, and every task gets a fresh terminal
+-- buffer. Closing the
 -- window hides the buffer, so a running job keeps going.
 
 local config = require "droid.config"
@@ -8,7 +9,7 @@ local M = {}
 
 M.buffer_id = nil
 M.window_id = nil
-M.buffer_type = nil -- "logcat" | "gradle"
+M.buffer_type = nil -- "logcat" | "task"
 M.current_job_id = nil
 
 local function buf_valid()
@@ -19,7 +20,7 @@ local function win_valid()
     return M.window_id ~= nil and vim.api.nvim_win_is_valid(M.window_id)
 end
 
----@param buffer_type "logcat"|"gradle"
+---@param buffer_type "logcat"|"task"
 ---@return integer bufnr
 local function new_buffer(buffer_type)
     local buf = vim.api.nvim_create_buf(false, true)
@@ -44,7 +45,7 @@ end
 
 --- The panel buffer for `buffer_type`, shown in the panel window. Any running
 --- job is stopped. A logcat buffer is reused and cleared.
----@param buffer_type "logcat"|"gradle"
+---@param buffer_type "logcat"|"task"
 ---@param mode? "horizontal"|"vertical"|"float" defaults to config.logcat.mode
 ---@return integer bufnr
 ---@return integer|nil winid
@@ -120,6 +121,58 @@ function M.show(mode)
     end
     M.window_id = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(M.window_id, M.buffer_id)
+end
+
+--- Run `cmd` in a fresh terminal in the panel. When it fails, the panel opens
+--- and takes focus so the output is in front of you. Refused while another
+--- task is running there.
+---@param cmd string[]
+---@param opts? { cwd?: string, env?: table<string, string> }
+---@param callback? fun(success: boolean, exit_code: integer, lines: string[]) `lines` is the output
+---@return integer|nil job_id
+function M.run_task(cmd, opts, callback)
+    local function done(...)
+        if callback then
+            callback(...)
+        end
+    end
+    if M.current_job_id and M.buffer_type == "task" then
+        vim.notify("A task is already running in the droid panel", vim.log.levels.WARN)
+        vim.schedule(function()
+            done(false, -1, {})
+        end)
+        return nil
+    end
+
+    local buf = M.get_or_create("task", "horizontal")
+    local ok, job_id = pcall(vim.api.nvim_buf_call, buf, function()
+        return vim.fn.jobstart(cmd, {
+            term = true,
+            cwd = opts and opts.cwd,
+            env = opts and opts.env,
+            on_exit = function(id, exit_code)
+                M.release_job(id)
+                vim.schedule(function()
+                    local lines = vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_lines(buf, 0, -1, false) or {}
+                    if exit_code ~= 0 and M.buffer_id == buf then
+                        M.show "horizontal"
+                        M.focus()
+                        M.scroll_to_bottom()
+                    end
+                    done(exit_code == 0, exit_code, lines)
+                end)
+            end,
+        })
+    end)
+    if not ok or job_id <= 0 then
+        vim.notify("Could not start " .. tostring(cmd[1]) .. ": " .. tostring(job_id), vim.log.levels.ERROR)
+        vim.schedule(function()
+            done(false, -1, {})
+        end)
+        return nil
+    end
+    M.set_current_job(job_id)
+    return job_id
 end
 
 function M.stop_current_job()

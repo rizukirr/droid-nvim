@@ -167,6 +167,14 @@ local function run(args, action, on_ok, on_fail)
     end)
 end
 
+--- The argv for `android <args>`, or nil when android-cli is unavailable.
+---@param args string[]
+---@return string[]|nil
+function M.argv(args)
+    local exe = resolve_binary()
+    return exe and vim.list_extend({ exe }, args) or nil
+end
+
 local function stdout_of(result)
     return result and result.stdout or ""
 end
@@ -182,12 +190,18 @@ function M.list_avds(callback)
 end
 
 --- Launch an emulator via `android emulator start <name>`. The command
---- returns once the emulator has booted. On failure `on_fail(msg)` runs with
---- the CLI's stderr.
+--- returns once the emulator has booted, and then `on_done(stdout)` runs. It
+--- exits 0 for some failures too, so callers check the device themselves.
+--- On a nonzero exit `on_fail(msg)` runs with the CLI's stderr.
 ---@param name string AVD name
 ---@param on_fail fun(msg: string)|nil
-function M.start_emulator(name, on_fail)
-    run({ "emulator", "start", name }, ("emulator start %s"):format(name), function() end, function(result)
+---@param on_done? fun(stdout: string)
+function M.start_emulator(name, on_fail, on_done)
+    run({ "emulator", "start", name }, ("emulator start %s"):format(name), function(result)
+        if on_done then
+            on_done(result.stdout or "")
+        end
+    end, function(result)
         if on_fail then
             on_fail(vim.trim(result and result.stderr or "android-cli not available"))
         end

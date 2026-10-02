@@ -126,12 +126,9 @@ end
 function run(adb, device_id, mode, filters, opts)
     opts = opts or {}
     local info = buffer.get_buffer_info()
-    -- The panel is shared with Gradle: never kill a running task to show logs.
-    if info.job_id and info.type == "gradle" then
-        vim.notify(
-            "A Gradle task is running in the droid panel. Run :DroidLogcat when it finishes.",
-            vim.log.levels.WARN
-        )
+    -- The panel is shared with tasks: never kill a running one to show logs.
+    if info.job_id and info.type == "task" then
+        vim.notify("A task is running in the droid panel. Run :DroidLogcat when it finishes.", vim.log.levels.WARN)
         return
     end
 

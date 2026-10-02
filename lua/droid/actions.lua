@@ -134,7 +134,7 @@ local function start_avd(tools, avd, on_ready)
         end
 
         if cli.prefers "emulator" then
-            cli.start_emulator(avd, on_fail)
+            android.start_emulator_via_cli(avd, on_fail)
         else
             android.start_emulator(tools.emulator, avd, on_fail)
         end
