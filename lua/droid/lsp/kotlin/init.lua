@@ -2,6 +2,7 @@
 
 local config = require "droid.config"
 local install = require "droid.lsp.shared.install"
+local lsp_client = require "droid.lsp.client"
 local sync = require "droid.lsp.kotlin.sync"
 
 local M = {}
@@ -13,15 +14,17 @@ local initialised = false
 ---------------------------------------------------------------------------
 
 --- Find kotlin-lsp package directory
---- Detection order: Mason -> KOTLIN_LSP_DIR env -> System PATH -> Auto-install
+--- Detection order: Mason, KOTLIN_LSP_DIR, system PATH, then an install offer
 ---@return { type: string, path: string }|nil
 local function find_kotlin_lsp()
-    return install.find_or_install {
+    return install.find_or_install({
         mason_name = "kotlin-lsp",
         env_var = "KOTLIN_LSP_DIR",
         binaries = { "kotlin-lsp", "kotlin-language-server" },
         display_name = "Kotlin LSP",
-    }
+    }, function()
+        M.start(config.get())
+    end)
 end
 
 --- Resolve the actual server root inside a package directory.
@@ -114,6 +117,31 @@ end
 -- LSP settings builder
 ---------------------------------------------------------------------------
 
+--- Inlay-hint options: config key, the server's setting section, the
+--- default, and other section names the server may ask for in
+--- workspace/configuration.
+local HINTS = {
+    { "parameters", "hints.parameters", true },
+    { "parameters_compiled", "hints.parameters.compiled", true },
+    { "parameters_excluded", "hints.parameters.excluded", false },
+    { "types_property", "hints.settings.types.property", true, "hints.types.property" },
+    { "types_variable", "hints.settings.types.variable", true, "hints.types.variable" },
+    { "function_return", "hints.type.function.return", true },
+    { "function_parameter", "hints.type.function.parameter", true },
+    { "lambda_return", "hints.settings.lambda.return", true, "hints.lambda.return" },
+    { "lambda_receivers_parameters", "hints.lambda.receivers.parameters", true },
+    { "value_ranges", "hints.settings.value.ranges", true, "hints.ranges.value" },
+    { "kotlin_time", "hints.value.kotlin.time", true, "hints.kotlin.time" },
+    { "call_chains", "hints.call.chains", false },
+}
+
+local function hint_value(ih, hint)
+    if hint[3] then
+        return ih[hint[1]] ~= false
+    end
+    return ih[hint[1]] == true
+end
+
 ---@param kotlin_cfg table Kotlin LSP config (cfg.lsp.kotlin)
 ---@return table
 local function make_settings(kotlin_cfg)
@@ -124,18 +152,9 @@ local function make_settings(kotlin_cfg)
     }
     local ih = kotlin_cfg.inlay_hints
     if ih then
-        s["jetbrains.kotlin.hints.parameters"] = ih.parameters ~= false
-        s["jetbrains.kotlin.hints.parameters.compiled"] = ih.parameters_compiled ~= false
-        s["jetbrains.kotlin.hints.parameters.excluded"] = ih.parameters_excluded == true
-        s["jetbrains.kotlin.hints.settings.types.property"] = ih.types_property ~= false
-        s["jetbrains.kotlin.hints.settings.types.variable"] = ih.types_variable ~= false
-        s["jetbrains.kotlin.hints.type.function.return"] = ih.function_return ~= false
-        s["jetbrains.kotlin.hints.type.function.parameter"] = ih.function_parameter ~= false
-        s["jetbrains.kotlin.hints.settings.lambda.return"] = ih.lambda_return ~= false
-        s["jetbrains.kotlin.hints.lambda.receivers.parameters"] = ih.lambda_receivers_parameters ~= false
-        s["jetbrains.kotlin.hints.settings.value.ranges"] = ih.value_ranges ~= false
-        s["jetbrains.kotlin.hints.value.kotlin.time"] = ih.kotlin_time ~= false
-        s["jetbrains.kotlin.hints.call.chains"] = ih.call_chains == true
+        for _, hint in ipairs(HINTS) do
+            s["jetbrains.kotlin." .. hint[2]] = hint_value(ih, hint)
+        end
     end
     return s
 end
@@ -146,33 +165,18 @@ end
 ---@return table[]
 local function handle_workspace_configuration(kotlin_cfg, items)
     local ih = kotlin_cfg.inlay_hints or {}
+    local by_section = {}
+    for _, hint in ipairs(HINTS) do
+        by_section[hint[2]] = hint
+        if hint[4] then
+            by_section[hint[4]] = hint
+        end
+    end
     local results = {}
     for _, item in ipairs(items) do
-        local section = item.section or ""
-        if section == "hints.parameters" then
-            table.insert(results, ih.parameters ~= false)
-        elseif section == "hints.parameters.compiled" then
-            table.insert(results, ih.parameters_compiled ~= false)
-        elseif section == "hints.parameters.excluded" then
-            table.insert(results, ih.parameters_excluded == true)
-        elseif section == "hints.settings.types.property" or section == "hints.types.property" then
-            table.insert(results, ih.types_property ~= false)
-        elseif section == "hints.settings.types.variable" or section == "hints.types.variable" then
-            table.insert(results, ih.types_variable ~= false)
-        elseif section == "hints.type.function.return" then
-            table.insert(results, ih.function_return ~= false)
-        elseif section == "hints.type.function.parameter" then
-            table.insert(results, ih.function_parameter ~= false)
-        elseif section == "hints.settings.lambda.return" or section == "hints.lambda.return" then
-            table.insert(results, ih.lambda_return ~= false)
-        elseif section == "hints.lambda.receivers.parameters" then
-            table.insert(results, ih.lambda_receivers_parameters ~= false)
-        elseif section == "hints.settings.value.ranges" or section == "hints.ranges.value" then
-            table.insert(results, ih.value_ranges ~= false)
-        elseif section == "hints.value.kotlin.time" or section == "hints.kotlin.time" then
-            table.insert(results, ih.kotlin_time ~= false)
-        elseif section == "hints.call.chains" then
-            table.insert(results, ih.call_chains == true)
+        local hint = by_section[item.section or ""]
+        if hint then
+            table.insert(results, hint_value(ih, hint))
         else
             table.insert(results, vim.NIL)
         end
@@ -215,7 +219,7 @@ function M.start(cfg)
     -- Find kotlin-lsp package
     local lsp_info = find_kotlin_lsp()
     if not lsp_info then
-        -- Auto-install triggered, will retry on next file open
+        -- Missing: an install was offered, and the next kotlin buffer retries.
         return
     end
 
@@ -317,29 +321,9 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
----@return vim.lsp.Client[]
-function M.get_clients(filter)
-    local opts = { name = "kotlin_ls" }
-    if filter and filter.bufnr then
-        opts.bufnr = filter.bufnr
-    end
-    return vim.lsp.get_clients(opts)
-end
-
 function M.stop()
-    for _, c in ipairs(M.get_clients()) do
+    for _, c in ipairs(lsp_client.all { name = lsp_client.LSP_NAMES.kotlin }) do
         c:stop()
-    end
-end
-
-function M.clean_workspace()
-    M.stop()
-    local dir = M.workspace_cache_dir()
-    if vim.fn.isdirectory(dir) == 1 then
-        vim.fn.delete(dir, "rf")
-        vim.notify("droid.nvim: Kotlin workspace cache removed", vim.log.levels.INFO)
-    else
-        vim.notify("droid.nvim: nothing to clean", vim.log.levels.INFO)
     end
 end
 
@@ -351,10 +335,6 @@ function M.restart()
     end, 500)
 end
 
-function M.is_initialised()
-    return initialised
-end
-
 --- Setup Kotlin LSP (called from main lsp/init.lua)
 ---@param cfg table
 function M.setup(cfg)
@@ -363,11 +343,11 @@ function M.setup(cfg)
         return
     end
 
-    -- Register FileType autocmd for lazy start
+    -- Start on the first kotlin buffer. Not `once`: a start that finds no
+    -- server yet must retry on the next buffer, and `initialised` stops repeats.
     vim.api.nvim_create_autocmd("FileType", {
         group = vim.api.nvim_create_augroup("DroidKotlinLsp", { clear = true }),
         pattern = "kotlin",
-        once = true,
         callback = function()
             M.start(cfg)
         end,

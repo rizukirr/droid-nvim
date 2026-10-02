@@ -31,7 +31,7 @@ local function check_android_cli()
     end
 
     if not cli.is_available() then
-        vim.health.error("`" .. exe .. " -V` failed; binary present but not functional")
+        vim.health.error("`" .. exe .. " -V` failed or printed no version: not android-cli, or broken")
         return
     end
 
@@ -40,7 +40,7 @@ local function check_android_cli()
     for _, cap in ipairs { "emulator", "deploy" } do
         local routed = cli.prefers(cap)
         local note = routed and "routed through android-cli" or "using fallback path"
-        if cap == "emulator" and (vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1) then
+        if cap == "emulator" and vim.fn.has "win32" == 1 then
             note = "fallback only (android emulator is not supported on Windows)"
         end
         vim.health.info(("%-10s -> %s"):format(cap, note))
@@ -84,12 +84,12 @@ local function check_kotlin_lsp()
     if #clients > 0 then
         vim.health.ok("kotlin_ls attached (" .. #clients .. " client(s))")
     else
-        vim.health.info("kotlin_ls not attached — open a .kt file inside a Gradle/Maven project")
+        vim.health.info "kotlin_ls not attached — open a .kt file inside a Gradle/Maven project"
     end
     if pcall(require, "dap") then
-        vim.health.ok("nvim-dap present — wire require('droid.lsp.dap') for Kotlin debugging")
+        vim.health.ok "nvim-dap present — wire require('droid.lsp.dap') for Kotlin debugging"
     else
-        vim.health.info("nvim-dap not installed (optional; needed only for debugging via droid.lsp.dap)")
+        vim.health.info "nvim-dap not installed (optional; needed only for debugging via droid.lsp.dap)"
     end
 end
 

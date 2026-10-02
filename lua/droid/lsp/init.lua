@@ -60,10 +60,7 @@ end
 ---@param filter? { bufnr?: number }
 ---@return vim.lsp.Client[]
 function M.get_clients(filter)
-    local clients = {}
-    vim.list_extend(clients, get_kotlin().get_clients(filter))
-    vim.list_extend(clients, get_groovy().get_clients(filter))
-    return clients
+    return require("droid.lsp.client").all(filter)
 end
 
 ---------------------------------------------------------------------------

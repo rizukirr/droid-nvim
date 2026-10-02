@@ -22,22 +22,69 @@ function M.build(sig, indent)
 end
 
 --- Parse a Kotlin function signature out of a (possibly multi-line) string.
+--- Handles type parameters and receivers (`fun <T> List<T>.name(`) and
+--- function-typed parameters (`f: (A, B) -> C`).
 ---@param text string
 ---@return { name:string, params:string[], has_return:boolean }|nil
 function M._parse_signature_text(text)
     text = text:gsub("%s+", " ")
-    local name, paramstr = text:match("fun%s+`?([%w_]+)`?%s*%((.-)%)")
+    local _, fun_end = text:find "%f[%w]fun%f[%W]"
+    if not fun_end then
+        return nil
+    end
+
+    -- The parameter list opens at the first `(` outside type arguments.
+    local depth, open = 0, nil
+    for i = fun_end + 1, #text do
+        local ch = text:sub(i, i)
+        if ch == "<" then
+            depth = depth + 1
+        elseif ch == ">" then
+            depth = depth - 1
+        elseif ch == "(" and depth == 0 then
+            open = i
+            break
+        end
+    end
+    if not open then
+        return nil
+    end
+    local name = text:sub(fun_end + 1, open - 1):match "`?([%w_]+)`?%s*$"
     if not name then
         return nil
     end
-    local params = {}
-    for _, seg in ipairs(vim.split(paramstr, ",", { plain = true })) do
-        local pname = seg:match("([%w_]+)%s*:")
+
+    -- Split at top-level commas up to the matching `)`. The `>` of `->` is
+    -- not a bracket.
+    local params, seg_start, close = {}, open + 1, nil
+    local function add(seg)
+        local pname = seg:match "([%w_]+)%s*:"
         if pname then
             params[#params + 1] = pname
         end
     end
-    local has_return = text:match("%)%s*:%s*[%w_]") ~= nil
+    depth = 0
+    for i = open + 1, #text do
+        local ch = text:sub(i, i)
+        if ch:match "[%(<%[{]" then
+            depth = depth + 1
+        elseif ch:match "[%)%]}]" or (ch == ">" and text:sub(i - 1, i - 1) ~= "-") then
+            if depth == 0 and ch == ")" then
+                add(text:sub(seg_start, i - 1))
+                close = i
+                break
+            end
+            depth = depth - 1
+        elseif ch == "," and depth == 0 then
+            add(text:sub(seg_start, i - 1))
+            seg_start = i + 1
+        end
+    end
+    if not close then
+        return nil
+    end
+
+    local has_return = text:sub(close + 1):match "^%s*:%s*[%w_(]" ~= nil
     return { name = name, params = params, has_return = has_return }
 end
 
@@ -51,13 +98,13 @@ local function gather_signature(bufnr, fn_lnum)
     for i = fn_lnum, math.min(fn_lnum + 20, total) do
         local line = vim.api.nvim_buf_get_lines(bufnr, i - 1, i, false)[1] or ""
         parts[#parts + 1] = line
-        for ch in line:gmatch("[%(%)]") do
+        for ch in line:gmatch "[%(%)]" do
             depth = depth + (ch == "(" and 1 or -1)
         end
         if i > fn_lnum and depth <= 0 then
             break
         end
-        if line:find("%)") and depth <= 0 then
+        if line:find "%)" and depth <= 0 then
             break
         end
     end
@@ -73,8 +120,8 @@ function M.signature(bufnr, lnum)
     for i = lnum, math.min(lnum + 20, total) do
         local line = vim.api.nvim_buf_get_lines(bufnr, i - 1, i, false)[1] or ""
         -- Skip comment lines so `fun` inside a `//` or ` * ` comment is ignored.
-        local is_comment = line:match("^%s*//") or line:match("^%s*%*")
-        if not is_comment and line:match("%f[%w]fun%f[%W]") then
+        local is_comment = line:match "^%s*//" or line:match "^%s*%*"
+        if not is_comment and line:match "%f[%w]fun%f[%W]" then
             fn_lnum = i
             break
         end
@@ -112,7 +159,7 @@ function M.generate()
         return
     end
     local fn_line = vim.api.nvim_buf_get_lines(bufnr, fn_lnum - 1, fn_lnum, false)[1] or ""
-    local indent = fn_line:match("^%s*") or ""
+    local indent = fn_line:match "^%s*" or ""
     local doc
     if sig then
         doc = M.build(sig, indent)

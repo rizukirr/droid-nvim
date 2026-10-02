@@ -4,16 +4,14 @@ local M = {}
 
 M._cached_sdk_path = nil
 
--- Locate the project root by walking up for settings.gradle{,.kts} or gradlew.
+-- Seconds-scale bound for adb and emulator calls that block the editor, so a
+-- hung daemon or offline device cannot freeze it.
+local SYNC_TIMEOUT_MS = 10000
+
+-- Locate the project root: the nearest settings script, else gradlew.
 local function find_project_root()
-    local markers = { "settings.gradle", "settings.gradle.kts", "gradlew" }
-    for _, m in ipairs(markers) do
-        local hit = vim.fs.find(m, { upward = true })[1]
-        if hit then
-            return vim.fs.dirname(hit)
-        end
-    end
-    return nil
+    local cwd = vim.fn.getcwd()
+    return vim.fs.root(cwd, { "settings.gradle", "settings.gradle.kts" }) or vim.fs.root(cwd, "gradlew")
 end
 
 -- Extract applicationId from a build.gradle{,.kts} body. Handles both
@@ -34,6 +32,38 @@ end
 local _cached_application_id = nil
 local _cached_application_id_root = nil
 
+-- An edited build script can change the applicationId.
+vim.api.nvim_create_autocmd("BufWritePost", {
+    group = vim.api.nvim_create_augroup("DroidApplicationId", { clear = true }),
+    pattern = { "*.gradle", "*.gradle.kts" },
+    callback = function()
+        _cached_application_id_root = nil
+    end,
+})
+
+--- Every build.gradle{,.kts} under `root`, skipping build outputs and hidden
+--- directories such as .gradle and .git.
+---@param root string
+---@return string[]
+local function build_scripts(root)
+    local found = {}
+    for rel, kind in
+        vim.fs.dir(root, {
+            depth = math.huge,
+            skip = function(dir)
+                local name = vim.fs.basename(dir)
+                return name ~= "build" and name:sub(1, 1) ~= "."
+            end,
+        })
+    do
+        local name = vim.fs.basename(rel)
+        if kind == "file" and (name == "build.gradle" or name == "build.gradle.kts") then
+            table.insert(found, vim.fs.joinpath(root, rel))
+        end
+    end
+    return found
+end
+
 -- Find the project's applicationId. Prefers the one AGP recorded for the
 -- selected variant in output-metadata.json, which includes flavor and build
 -- type suffixes. Otherwise searches every build.gradle{,.kts} under the
@@ -48,17 +78,13 @@ function M.find_application_id()
         return output.application_id
     end
 
-    if _cached_application_id and _cached_application_id_root == root then
+    if _cached_application_id_root == root then
         return _cached_application_id
     end
 
-    local gradle_files = vim.fs.find(function(name)
-        return name == "build.gradle" or name == "build.gradle.kts"
-    end, { path = root, type = "file", limit = math.huge })
-
     local fallback = nil
 
-    for _, path in ipairs(gradle_files) do
+    for _, path in ipairs(build_scripts(root)) do
         local file = io.open(path, "r")
         if file then
             local content = file:read "*all"
@@ -85,9 +111,8 @@ end
 function M.find_main_activity(adb, device_id, application_id)
     local obj = vim.system(
         { adb, "-s", device_id, "shell", "cmd", "package", "resolve-activity", "--brief", application_id },
-        {}
-    )
-        :wait()
+        { text = true }
+    ):wait(SYNC_TIMEOUT_MS)
     if obj.code ~= 0 then
         return nil
     end
@@ -106,24 +131,47 @@ function M.find_main_activity(adb, device_id, application_id)
     return result
 end
 
--- Launch app on device (standalone function)
--- Args: adb, device_id, callback (optional)
+--- Launch the project's app on a device, through its launcher activity when
+--- one resolves, else through `monkey`. `callback(ok)` runs once it is done.
+---@param adb string
+---@param device_id string
+---@param callback? fun(ok: boolean)
 function M.launch_app_on_device(adb, device_id, callback)
-    local application_id = M.find_application_id()
+    local function done(ok)
+        if callback then
+            callback(ok)
+        end
+    end
 
+    local application_id = M.find_application_id()
     if not application_id then
         vim.notify("Failed to find application ID from build.gradle", vim.log.levels.ERROR)
-        if callback then
-            vim.schedule(callback)
-        end
+        vim.schedule(function()
+            done(false)
+        end)
         return
     end
 
+    local cmd
     local main_activity = M.find_main_activity(adb, device_id, application_id)
-    if not main_activity then
+    if main_activity then
+        cmd = {
+            adb,
+            "-s",
+            device_id,
+            "shell",
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.MAIN",
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "-n",
+            main_activity,
+        }
+    else
         vim.notify("Failed to find main activity, trying monkey command...", vim.log.levels.WARN)
-        -- Fallback to monkey command
-        local launch_obj = vim.system({
+        cmd = {
             adb,
             "-s",
             device_id,
@@ -134,65 +182,35 @@ function M.launch_app_on_device(adb, device_id, callback)
             "-c",
             "android.intent.category.LAUNCHER",
             "1",
-        }, {}):wait()
-
-        if launch_obj.code == 0 then
-            vim.notify("App launched successfully!", vim.log.levels.INFO)
-        else
-            vim.notify("Failed to launch app: " .. (launch_obj.stderr or "unknown error"), vim.log.levels.ERROR)
-        end
-
-        if callback then
-            vim.schedule(callback)
-        end
-        return
+        }
     end
 
-    -- Launch with specific activity
-    local launch_obj = vim.system({
-        adb,
-        "-s",
-        device_id,
-        "shell",
-        "am",
-        "start",
-        "-a",
-        "android.intent.action.MAIN",
-        "-c",
-        "android.intent.category.LAUNCHER",
-        "-n",
-        main_activity,
-    }, {}):wait()
-
-    if launch_obj.code == 0 then
-        vim.notify("App launched successfully!", vim.log.levels.INFO)
-    else
-        vim.notify("Failed to launch app: " .. (launch_obj.stderr or "unknown error"), vim.log.levels.ERROR)
-    end
-
-    if callback then
-        vim.schedule(callback)
-    end
+    vim.system(cmd, { text = true }, function(obj)
+        vim.schedule(function()
+            if obj.code == 0 then
+                vim.notify("App launched successfully!", vim.log.levels.INFO)
+            else
+                vim.notify("Failed to launch app: " .. (obj.stderr or "unknown error"), vim.log.levels.ERROR)
+            end
+            done(obj.code == 0)
+        end)
+    end)
 end
 
+--- The app's process id on the device, or nil when it is not running.
+---@param callback fun(pid: string|nil)
 function M.get_app_pid(adb, device_id, package_name, callback)
     if not package_name or package_name == "" then
         callback(nil)
         return
     end
 
-    local cmd = { adb, "-s", device_id, "shell", "pidof", package_name }
-    local result = vim.system(cmd, {}):wait()
-
-    if result.code == 0 and result.stdout then
-        local pid = vim.trim(result.stdout)
-        if pid ~= "" then
-            callback(pid)
-            return
-        end
-    end
-
-    callback(nil)
+    vim.system({ adb, "-s", device_id, "shell", "pidof", package_name }, { text = true }, function(result)
+        vim.schedule(function()
+            -- pidof lists every matching process; the first is the app.
+            callback(result.code == 0 and (result.stdout or ""):match "%d+" or nil)
+        end)
+    end)
 end
 
 --- Environment for the SDK emulator tools: ANDROID_AVD_HOME from
@@ -206,7 +224,7 @@ end
 ---@param emulator string
 ---@return string[]
 local function list_avds(emulator)
-    local result = vim.system({ emulator, "-list-avds" }, { env = emulator_env(), text = true }):wait()
+    local result = vim.system({ emulator, "-list-avds" }, { env = emulator_env(), text = true }):wait(SYNC_TIMEOUT_MS)
     local avds = {}
     for line in (result.stdout or ""):gmatch "[^\r\n]+" do
         local trimmed = vim.trim(line)
@@ -276,7 +294,7 @@ function M.detect_android_sdk()
     return nil
 end
 
-local is_windows = vim.uv.os_uname().sysname == "Windows_NT"
+local is_windows = vim.fn.has "win32" == 1
 
 function M.get_adb_path()
     local sdk = M.detect_android_sdk()
@@ -309,10 +327,9 @@ function M.get_running_devices(adb, callback)
         return
     end
 
-    vim.schedule(function()
-        local result = vim.fn.systemlist { adb, "devices", "-l" }
+    vim.system({ adb, "devices", "-l" }, { text = true }, function(obj)
         local devices = {}
-        for _, line in ipairs(result) do
+        for line in (obj.stdout or ""):gmatch "[^\r\n]+" do
             if not line:match "List of devices" and #line > 0 then
                 local id, model = line:match "^(%S+)%s+device.*model:(%S+)"
                 if id and model then
@@ -325,7 +342,9 @@ function M.get_running_devices(adb, callback)
                 end
             end
         end
-        callback(devices)
+        vim.schedule(function()
+            callback(devices)
+        end)
     end)
 end
 
@@ -334,7 +353,7 @@ end
 ---@param serial string e.g. "emulator-5554"
 ---@return string|nil
 local function avd_name(adb, serial)
-    local result = vim.system({ adb, "-s", serial, "emu", "avd", "name" }, { text = true }):wait()
+    local result = vim.system({ adb, "-s", serial, "emu", "avd", "name" }, { text = true }):wait(SYNC_TIMEOUT_MS)
     if result.code ~= 0 then
         return nil
     end
@@ -744,9 +763,9 @@ local function run_avd_create(avdmanager, name, image_pkg, device_id)
     })
 
     if job_id > 0 then
-        vim.defer_fn(function()
-            pcall(vim.fn.chansend, job_id, "no\n")
-        end, 500)
+        -- Answers "Do you wish to create a custom hardware profile?". The pipe
+        -- holds it until avdmanager asks.
+        vim.fn.chansend(job_id, "no\n")
     end
 end
 
@@ -836,15 +855,9 @@ function M.launch_emulator()
     end
 
     prompt_and_launch(M.get_available_avds(emulator), function(choice)
-        local job_args = M.build_emulator_command(emulator, { "-avd", choice })
-        vim.fn.jobstart(job_args, {
-            env = emulator_env(),
-            on_exit = vim.schedule_wrap(function(_, exit_code)
-                if exit_code ~= 0 then
-                    vim.notify("Failed to launch Emulator: " .. choice, vim.log.levels.ERROR)
-                end
-            end),
-        })
+        M.start_emulator(emulator, choice, function(msg)
+            vim.notify("Failed to launch Emulator " .. choice .. ": " .. msg, vim.log.levels.ERROR)
+        end)
     end)
 end
 

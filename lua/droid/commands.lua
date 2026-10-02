@@ -14,19 +14,24 @@ end
 local function guarded(name, fn)
     if active_command then
         vim.notify(
-            string.format(":%s is already running — wait for it to finish or stop it first", active_command),
+            string.format(":%s is already running, wait for it to finish or stop it first", active_command),
             vim.log.levels.WARN
         )
         return
     end
     active_command = name
-    fn(clear_active)
+    -- An error before the chain reaches `done` must not leave the guard set.
+    local ok, err = pcall(fn, clear_active)
+    if not ok then
+        clear_active()
+        error(err, 0)
+    end
 end
 
 local function check_guard(name, fn)
     if active_command then
         vim.notify(
-            string.format(":%s is running — %s blocked until it finishes", active_command, name),
+            string.format(":%s is running, %s blocked until it finishes", active_command, name),
             vim.log.levels.WARN
         )
         return
@@ -69,7 +74,7 @@ function M.setup_commands()
         guarded("DroidTask", function(done)
             gradle.task(opts.fargs[1], vim.list_slice(opts.fargs, 2), done)
         end)
-    end, { nargs = "+", complete = "shellcmd" })
+    end, { nargs = "+" })
 
     vim.api.nvim_create_user_command("DroidDevices", function()
         actions.show_devices()
@@ -93,9 +98,10 @@ function M.setup_commands()
         local filters = {}
 
         for _, arg in ipairs(opts.fargs) do
-            local key, value = arg:match "([^=]+)=([^=]+)"
-            if key and value then
-                filters[key] = value
+            local key, value = arg:match "^([^=]+)=(.+)$"
+            if key then
+                -- `grep=` is the documented spelling of the grep_pattern filter.
+                filters[key == "grep" and "grep_pattern" or key] = value
             end
         end
 
@@ -127,8 +133,8 @@ function M.setup_commands()
         end,
     })
 
+    -- Stopping the task ends its command chain, which releases the guard.
     vim.api.nvim_create_user_command("DroidGradleStop", function()
-        clear_active()
         gradle.stop()
     end, {})
 
@@ -199,18 +205,7 @@ function M.setup_commands()
                 return
             end
             vim.notify("Screenshot saved: " .. path, vim.log.levels.INFO)
-
-            local opener
-            if vim.fn.has "mac" == 1 then
-                opener = "open"
-            elseif vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1 then
-                opener = "explorer"
-            elseif vim.fn.executable "xdg-open" == 1 then
-                opener = "xdg-open"
-            end
-            if opener then
-                vim.system({ opener, path }, { detach = true })
-            end
+            vim.ui.open(path)
         end)
     end, { nargs = "?", complete = "file", bang = true })
 
@@ -247,6 +242,13 @@ function M.setup_commands()
                     return
                 end
                 local url = choice:match "kb://%S+" or choice
+                local name = "droid-docs://" .. url
+                for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+                    if vim.api.nvim_buf_get_name(buf) == name then
+                        vim.cmd.sbuffer(buf)
+                        return
+                    end
+                end
                 cli.docs_fetch(url, function(ok, body)
                     if not ok then
                         return
@@ -259,7 +261,7 @@ function M.setup_commands()
                     vim.bo[buf].swapfile = false
                     vim.bo[buf].filetype = "markdown"
                     vim.bo[buf].modifiable = false
-                    vim.api.nvim_buf_set_name(buf, "droid-docs://" .. url)
+                    vim.api.nvim_buf_set_name(buf, name)
                 end)
             end)
         end)

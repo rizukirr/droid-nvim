@@ -134,7 +134,7 @@ function M.default_configs()
             request = "launch",
             name = "Kotlin: launch main class",
             mainClass = function()
-                return vim.fn.input("Main class (fully-qualified): ")
+                return vim.fn.input "Main class (fully-qualified): "
             end,
         },
     }

@@ -57,29 +57,31 @@ end
 local function offer(bufnr, client)
     local names, map = M.list(require("droid.config").get().editor.templates)
     vim.ui.select(names, { prompt = "Kotlin file template" }, function(choice)
-            if not choice then
-                return
-            end
-            local uri = vim.uri_from_bufnr(bufnr)
-            client:request("workspace/executeCommand", {
-                command = "interpolateFileTemplate",
-                arguments = { uri, map[choice] },
-            }, function(err, result)
-                vim.schedule(function()
-                    if err or type(result) ~= "string" then
-                        vim.notify(
-                            "droid.nvim: file template unavailable: " .. tostring(err),
-                            vim.log.levels.WARN
-                        )
-                        return
-                    end
-                    local text, cursor = M.split_caret(result)
-                    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(text, "\n", { plain = true }))
-                    if cursor then
-                        pcall(vim.api.nvim_win_set_cursor, 0, { cursor[1] + 1, cursor[2] })
-                    end
-                end)
-            end, bufnr)
+        if not choice then
+            return
+        end
+        local uri = vim.uri_from_bufnr(bufnr)
+        client:request("workspace/executeCommand", {
+            command = "interpolateFileTemplate",
+            arguments = { uri, map[choice] },
+        }, function(err, result)
+            vim.schedule(function()
+                if err or type(result) ~= "string" then
+                    vim.notify("droid.nvim: file template unavailable: " .. tostring(err), vim.log.levels.WARN)
+                    return
+                end
+                -- You may have typed or closed the buffer while the server answered.
+                if not still_empty(bufnr) then
+                    return
+                end
+                local text, cursor = M.split_caret(result)
+                vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(text, "\n", { plain = true }))
+                local win = vim.fn.bufwinid(bufnr)
+                if cursor and win ~= -1 then
+                    pcall(vim.api.nvim_win_set_cursor, win, { cursor[1] + 1, cursor[2] })
+                end
+            end)
+        end, bufnr)
     end)
 end
 

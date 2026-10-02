@@ -27,6 +27,8 @@ write(adb, {
     '*resolve-activity*) printf "%s\\n" "$FAKE_RESOLVE" ;;',
     '*"getprop sys.boot_completed") sleep "${FAKE_BOOT_SLEEP:-0}"; echo 1 ;;',
     '*"pm list packages") echo package:com.x ;;',
+    '*"pidof "*) [ -n "$FAKE_PID" ] && echo "$FAKE_PID" || exit 1 ;;',
+    '*" logcat"*) printf "%b\\n" "$FAKE_LOGCAT"; sleep 5 ;;',
     "esac",
 }, true)
 
@@ -206,6 +208,7 @@ local function gradle_project(name)
         'case "$*" in',
         '"-q tasks --group=install") printf "%b\\n" "$FAKE_GRADLE_TASKS" ;;',
         'install*) printf "%s\\n" "$FAKE_INSTALL_OUTPUT"; exit "${FAKE_INSTALL_EXIT:-0}" ;;',
+        "slow) sleep 1 ;;",
         "esac",
     }, true)
     return dir
@@ -363,8 +366,8 @@ check("a failed install shows Gradle's output", function()
     vim.env.FAKE_INSTALL_OUTPUT = "Ambiguous matches"
     vim.env.FAKE_INSTALL_EXIT = "1"
     local result
-    gradle.build_and_install(function(success, _, _, step)
-        result = { success = success, step = step }
+    gradle.install(function(success)
+        result = { success = success }
     end)
     vim.wait(10000, function()
         return result ~= nil
@@ -372,13 +375,13 @@ check("a failed install shows Gradle's output", function()
     vim.wait(200)
     vim.env.FAKE_INSTALL_OUTPUT = nil
     vim.env.FAKE_INSTALL_EXIT = nil
-    assert(result and result.success == false and result.step == "install", vim.inspect(result))
+    assert(result and result.success == false, vim.inspect(result))
     local buf = require("droid.buffer").buffer_id
     local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
     assert(text:find("Ambiguous matches", 1, true), text)
 end)
 
-check(":DroidRun asks for a variant, then a device, then builds and installs it", function()
+check(":DroidRun asks for a variant, then a device, then installs it in one Gradle run", function()
     vim.fn.chdir(flavored_gradle)
     vim.env.FAKE_GRADLE_TASKS = minbar_tasks
     commands.setup_commands()
@@ -395,10 +398,81 @@ check(":DroidRun asks for a variant, then a device, then builds and installs it"
     local before = #gradle_calls()
     vim.cmd "DroidRun"
     vim.wait(10000, function()
-        return #gradle_calls() >= before + 2
+        return #gradle_calls() >= before + 1
     end)
+    vim.wait(500)
     local calls = vim.list_slice(gradle_calls(), before + 1)
-    assert(vim.deep_equal(calls, { "assembleDemoDebug", "installDemoDebug" }), vim.inspect(calls))
+    assert(vim.deep_equal(calls, { "installDemoDebug" }), vim.inspect(calls))
     assert(selects[1] and selects[1].prompt == "Select build variant:", vim.inspect(selects))
     assert(selects[2] and selects[2].prompt == "Select device/emulator", vim.inspect(selects))
+end)
+
+local buffer = require "droid.buffer"
+local logcat = require "droid.logcat"
+
+check("closing the panel leaves a running Gradle task alone", function()
+    vim.fn.chdir(flavored_gradle)
+    local result
+    gradle.task("slow", nil, function(ok)
+        result = ok
+    end)
+    vim.api.nvim_win_close(buffer.window_id, true)
+    vim.wait(5000, function()
+        return result ~= nil
+    end)
+    assert(result == true, tostring(result))
+end)
+
+check("a gradlew without its executable bit runs through sh and stays as it is", function()
+    local dir = gradle_project "gradle-no-exec"
+    local gradlew = vim.fs.joinpath(dir, "gradlew")
+    vim.uv.fs_chmod(gradlew, tonumber("644", 8))
+    vim.fn.chdir(dir)
+    local result
+    gradle.clean(function(ok)
+        result = ok
+    end)
+    vim.wait(5000, function()
+        return result ~= nil
+    end)
+    assert(result == true, tostring(result))
+    assert(vim.fn.executable(gradlew) == 0, "gradlew was chmodded")
+end)
+
+check(":DroidLogcatFilter grep= keeps only lines containing the text", function()
+    vim.fn.chdir(flavored_gradle)
+    vim.env.FAKE_DEVICES = "emulator-5554\tdevice product:x model:x"
+    vim.env.FAKE_LOGCAT = "keep[ this\\ndrop this\\nkeep[ that"
+    vim.cmd "DroidLogcatFilter package=none grep=keep["
+    vim.wait(3000, function()
+        return buffer.buffer_type == "logcat" and #vim.api.nvim_buf_get_lines(buffer.buffer_id, 0, -1, false) >= 2
+    end)
+    local lines = vim.api.nvim_buf_get_lines(buffer.buffer_id, 0, -1, false)
+    assert(vim.deep_equal(lines, { "keep[ this", "keep[ that" }), vim.inspect(lines))
+    logcat.stop()
+end)
+
+check("refreshing logcat with no session says nothing about stopping one", function()
+    notes = {}
+    logcat.refresh_logcat(adb, "emulator-5554", nil, { package = "none" })
+    vim.wait(200)
+    assert(not notified "No active logcat process", table.concat(notes, "\n"))
+    logcat.stop()
+end)
+
+check("logcat follows the app to its new process", function()
+    vim.env.FAKE_PID = "100"
+    vim.env.FAKE_LOGCAT = "line"
+    logcat.start(adb, "emulator-5554", nil, { package = "com.x" })
+    vim.wait(1000, function()
+        return logcat.is_running()
+    end)
+    local first = buffer.current_job_id
+    vim.env.FAKE_PID = "200"
+    vim.wait(5000, function()
+        return buffer.current_job_id ~= first
+    end)
+    assert(buffer.current_job_id ~= first and logcat.is_running(), "logcat did not restart on the new pid")
+    vim.env.FAKE_PID = nil
+    logcat.stop()
 end)

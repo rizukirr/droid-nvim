@@ -6,18 +6,28 @@ local cli = require "droid.backends.android_cli"
 
 local M = {}
 
-local function handle_post_install(tools, device_id)
-    local cfg = config.get()
-
-    local function start_logcat()
-        local delay_ms = cfg.android.logcat_startup_delay_ms or 2000
-        vim.defer_fn(function()
-            logcat.refresh_logcat(tools.adb, device_id, nil, nil)
-            vim.notify("Build, install, and launch completed", vim.log.levels.INFO)
-        end, delay_ms)
+local function call(fn, ...)
+    if fn then
+        fn(...)
     end
+end
 
-    android.launch_app_on_device(tools.adb, device_id, start_logcat)
+--- Open a fresh logcat once the app has had time to start.
+local function start_logcat_later(tools, device_id, on_started)
+    vim.defer_fn(function()
+        logcat.refresh_logcat(tools.adb, device_id, nil, nil)
+        call(on_started)
+    end, config.get().android.logcat_startup_delay_ms or 2000)
+end
+
+local function handle_post_install(tools, device_id)
+    android.launch_app_on_device(tools.adb, device_id, function(launched)
+        start_logcat_later(tools, device_id, function()
+            if launched then
+                vim.notify("Build, install, and launch completed", vim.log.levels.INFO)
+            end
+        end)
+    end)
 end
 
 -- :DroidRun fast path: gradle assemble<Variant> + `android run --apks=…`.
@@ -27,17 +37,13 @@ end
 local function execute_build_run_via_cli(tools, device_id, on_complete)
     local g = gradle.find_gradlew()
     if not g then
-        if on_complete then
-            on_complete()
-        end
+        call(on_complete)
         return
     end
 
     gradle.build(function(build_ok)
         if not build_ok then
-            if on_complete then
-                on_complete()
-            end
+            call(on_complete)
             return
         end
 
@@ -50,9 +56,7 @@ local function execute_build_run_via_cli(tools, device_id, on_complete)
                 vim.log.levels.WARN
             )
             gradle.install(function(install_ok)
-                if on_complete then
-                    on_complete()
-                end
+                call(on_complete)
                 if install_ok then
                     handle_post_install(tools, device_id)
                 end
@@ -61,18 +65,12 @@ local function execute_build_run_via_cli(tools, device_id, on_complete)
         end
 
         cli.run_apks(apks, { device = device_id }, function(ok)
-            if on_complete then
-                on_complete()
-            end
+            call(on_complete)
             if not ok then
                 return
             end
             vim.notify("android-cli run completed", vim.log.levels.INFO)
-            local cfg = config.get()
-            local delay_ms = cfg.android.logcat_startup_delay_ms or 2000
-            vim.defer_fn(function()
-                logcat.refresh_logcat(tools.adb, device_id, nil, nil)
-            end, delay_ms)
+            start_logcat_later(tools, device_id)
         end)
     end)
 end
@@ -83,17 +81,12 @@ local function execute_build_install(tools, device_id, on_complete)
         return
     end
 
-    gradle.build_and_install(function(success, exit_code, message, step)
-        if on_complete then
-            on_complete()
+    -- install<Variant> assembles first, so one Gradle run does both.
+    gradle.install(function(success)
+        call(on_complete)
+        if success then
+            handle_post_install(tools, device_id)
         end
-
-        if not success then
-            vim.notify(string.format("Workflow failed at %s step: %s", step, message), vim.log.levels.ERROR)
-            return
-        end
-
-        handle_post_install(tools, device_id)
     end)
 end
 
@@ -161,25 +154,19 @@ M._start_avd = start_avd
 function M.build_and_run(on_complete)
     local tools = M.get_required_tools()
     if not tools then
-        if on_complete then
-            on_complete()
-        end
+        call(on_complete)
         return
     end
 
     gradle.pick_variant("install", function(picked)
         if not picked then
-            if on_complete then
-                on_complete()
-            end
+            call(on_complete)
             return
         end
 
         M.select_target(tools, function(target)
             if not target then
-                if on_complete then
-                    on_complete()
-                end
+                call(on_complete)
                 return
             end
 
@@ -188,9 +175,7 @@ function M.build_and_run(on_complete)
             elseif target.type == "avd" then
                 start_avd(tools, target.avd, function(device_id)
                     if not device_id then
-                        if on_complete then
-                            on_complete()
-                        end
+                        call(on_complete)
                         return
                     end
                     execute_build_install(tools, device_id, on_complete)

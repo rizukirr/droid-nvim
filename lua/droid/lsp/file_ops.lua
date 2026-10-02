@@ -15,7 +15,7 @@ local M = {}
 --- its project index to answer, which takes longer than oil's 1s default.
 local TIMEOUT_MS = 5000
 
---- Every URI the applied edits touched, so the caller can save those buffers.
+--- Every URI an edit touches.
 ---@param edit table lsp.WorkspaceEdit
 ---@return string[]
 local function edited_uris(edit)
@@ -34,27 +34,47 @@ end
 --- Ask every attached droid server what a rename would change, and apply it.
 ---@param old_path string
 ---@param new_path string
----@return string[] uris the buffers the edits touched
+---@return integer[] touched the buffers the edits changed
+---@return integer[] to_save those among them that had no unsaved changes before
 local function apply_will_rename(old_path, new_path)
     local params = {
         files = { { oldUri = vim.uri_from_fname(old_path), newUri = vim.uri_from_fname(new_path) } },
     }
-    local touched = {}
+    local touched, to_save, seen = {}, {}, {}
     for _, c in ipairs(lsp.get_clients()) do
         if c:supports_method "workspace/willRenameFiles" then
             local res = c:request_sync("workspace/willRenameFiles", params, TIMEOUT_MS, 0)
             if res and res.result then
+                local uris = edited_uris(res.result)
+                local was_modified = {}
+                for _, b in ipairs(vim.api.nvim_list_bufs()) do
+                    if vim.bo[b].modified then
+                        was_modified[vim.uri_from_bufnr(b)] = true
+                    end
+                end
                 vim.lsp.util.apply_workspace_edit(res.result, c.offset_encoding)
-                vim.list_extend(touched, edited_uris(res.result))
+                for _, uri in ipairs(uris) do
+                    local b = vim.uri_to_bufnr(uri)
+                    if not seen[b] then
+                        seen[b] = true
+                        table.insert(touched, b)
+                        if not was_modified[uri] then
+                            table.insert(to_save, b)
+                        end
+                    end
+                end
             elseif res and res.err then
                 vim.notify(
-                    ("droid.nvim: %s could not prepare the rename: %s"):format(c.name, tostring(res.err.message or res.err)),
+                    ("droid.nvim: %s could not prepare the rename: %s"):format(
+                        c.name,
+                        tostring(res.err.message or res.err)
+                    ),
                     vim.log.levels.WARN
                 )
             end
         end
     end
-    return touched
+    return touched, to_save
 end
 
 --- Tell the servers the rename happened.
@@ -71,17 +91,13 @@ local function notify_did_rename(old_path, new_path)
     end
 end
 
---- Write the buffers the edits changed, leaving alone any that were already
---- modified before the rename.
----@param uris string[]
-local function save_edited(uris)
-    local seen = {}
-    for _, uri in ipairs(uris) do
-        local bufnr = vim.uri_to_bufnr(uri)
-        if not seen[bufnr] and vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].modified then
-            seen[bufnr] = true
+--- Write the given buffers. Autocmds run, so servers hear didSave.
+---@param bufnrs integer[]
+local function save(bufnrs)
+    for _, bufnr in ipairs(bufnrs) do
+        if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].modified then
             vim.api.nvim_buf_call(bufnr, function()
-                vim.cmd.update { mods = { emsg_silent = true, noautocmd = true } }
+                vim.cmd.update { mods = { emsg_silent = true } }
             end)
         end
     end
@@ -103,12 +119,13 @@ function M.rename(old_path, new_path, opts)
 
     -- The spec orders the edits before the move: they describe the code as it
     -- is now, and applying them after would race the server's own file watch.
-    local touched = apply_will_rename(old_path, new_path)
+    -- Buffer numbers survive the move, so they are taken before it.
+    local touched, to_save = apply_will_rename(old_path, new_path)
     vim.lsp.util.rename(old_path, new_path)
     notify_did_rename(old_path, new_path)
 
     if opts.save ~= false then
-        save_edited(touched)
+        save(to_save)
     end
     vim.notify(
         ("droid.nvim: renamed to %s (%d file(s) updated)"):format(vim.fn.fnamemodify(new_path, ":t"), #touched),

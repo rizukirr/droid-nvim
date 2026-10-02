@@ -15,9 +15,10 @@ local _cached_available = nil
 ---@type string|nil
 local _cached_version = nil
 
-local function is_windows()
-    return vim.fn.has "win32" == 1 or vim.fn.has "win64" == 1
-end
+local is_windows = vim.fn.has "win32" == 1
+
+-- Set once the "binary not found" warning has been shown.
+local warned_missing = false
 
 --- Reset detection cache. Useful for tests and `:checkhealth` reruns.
 function M.reset_cache()
@@ -38,7 +39,7 @@ end
 
 --- Resolve the `android` executable path, honoring the user toggle.
 --- Returns nil when the toggle is false or when the binary is absent.
---- When the toggle is `true` and the binary is missing we warn once.
+--- When the toggle is `true` and the binary is missing, warn once.
 ---@return string|nil
 local function resolve_binary()
     local toggle = read_toggle()
@@ -48,7 +49,8 @@ local function resolve_binary()
 
     local exe = vim.fn.exepath "android"
     if exe == nil or exe == "" then
-        if toggle == true then
+        if toggle == true and not warned_missing then
+            warned_missing = true
             vim.notify(
                 'config.android_cli = true but `android` binary not found on PATH; install from https://developer.android.com/tools/agents or set android_cli = "auto".',
                 vim.log.levels.WARN
@@ -73,8 +75,10 @@ function M.is_available()
         return false
     end
 
-    local result = vim.system({ exe, "-V" }, { text = true }):wait()
-    if result.code ~= 0 then
+    -- The SDK's long-removed `tools/android` script shares the name, so also
+    -- require that the output carries a version number.
+    local result = vim.system({ exe, "-V" }, { text = true }):wait(5000)
+    if result.code ~= 0 or not (result.stdout or ""):match "%d+%.%d+" then
         _cached_available = false
         return false
     end
@@ -102,7 +106,7 @@ function M.prefers(capability)
     if not M.is_available() then
         return false
     end
-    if capability == "emulator" and is_windows() then
+    if capability == "emulator" and is_windows then
         return false
     end
     return true
@@ -123,7 +127,7 @@ end
 ---   - trailing tabs / spaces / metadata ("name\tstatus", "name (path)")
 ---   - header lines that don't start with an identifier character
 --- Returns only tokens whose first character is a letter, digit, or
---- underscore -- AVD names and profile names match that shape; ANSI
+--- underscore. AVD names and profile names match that shape. ANSI
 --- escapes, prompts, and decorative headers don't.
 ---@param stdout string
 ---@return string[]
@@ -138,46 +142,54 @@ local function parse_id_list(stdout)
     return out
 end
 
---- List available AVD names via `android emulator list`.
---- Output is parsed with parse_id_list so "name\tstatus" / decorative
---- header lines / extra trailing metadata don't break the picker.
----@param callback fun(avds: string[])
-function M.list_avds(callback)
+--- Run `android <args>` and pass the finished process to `on_ok`. On a nonzero
+--- exit the failure is notified and `on_fail` gets the process, or nil when
+--- the binary is unavailable. Both run on the main loop.
+---@param args string[]
+---@param action string names the command in the failure message
+---@param on_ok fun(result: vim.SystemCompleted)
+---@param on_fail fun(result: vim.SystemCompleted|nil)
+local function run(args, action, on_ok, on_fail)
     local exe = resolve_binary()
     if not exe then
-        callback {}
+        on_fail(nil)
         return
     end
-    vim.system({ exe, "emulator", "list" }, { text = true }, function(result)
+    vim.system(vim.list_extend({ exe }, args), { text = true }, function(result)
         vim.schedule(function()
             if result.code ~= 0 then
-                notify_failure("emulator list", result)
-                callback {}
+                notify_failure(action, result)
+                on_fail(result)
                 return
             end
-            callback(parse_id_list(result.stdout))
+            on_ok(result)
         end)
     end)
 end
 
+local function stdout_of(result)
+    return result and result.stdout or ""
+end
+
+--- List available AVD names via `android emulator list`.
+---@param callback fun(avds: string[])
+function M.list_avds(callback)
+    run({ "emulator", "list" }, "emulator list", function(result)
+        callback(parse_id_list(result.stdout))
+    end, function()
+        callback {}
+    end)
+end
+
 --- Launch an emulator via `android emulator start <name>`. The command
---- returns once the emulator has booted. On a nonzero exit the failure is
---- notified and `on_fail(msg)` runs with the CLI's stderr.
+--- returns once the emulator has booted. On failure `on_fail(msg)` runs with
+--- the CLI's stderr.
 ---@param name string AVD name
 ---@param on_fail fun(msg: string)|nil
 function M.start_emulator(name, on_fail)
-    local exe = resolve_binary()
-    if not exe then
-        return
-    end
-    vim.system({ exe, "emulator", "start", name }, { text = true }, function(result)
-        if result.code ~= 0 then
-            vim.schedule(function()
-                notify_failure(("emulator start %s"):format(name), result)
-                if on_fail then
-                    on_fail(vim.trim(result.stderr or ""))
-                end
-            end)
+    run({ "emulator", "start", name }, ("emulator start %s"):format(name), function() end, function(result)
+        if on_fail then
+            on_fail(vim.trim(result and result.stderr or "android-cli not available"))
         end
     end)
 end
@@ -187,42 +199,23 @@ end
 --- (e.g. "medium_phone", "small_phone", "pixel_tablet").
 ---@param callback fun(profiles: string[])
 function M.list_emulator_profiles(callback)
-    local exe = resolve_binary()
-    if not exe then
+    run({ "emulator", "create", "--list-profiles" }, "emulator create --list-profiles", function(result)
+        callback(parse_id_list(result.stdout))
+    end, function()
         callback {}
-        return
-    end
-    vim.system({ exe, "emulator", "create", "--list-profiles" }, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure("emulator create --list-profiles", result)
-                callback {}
-                return
-            end
-            callback(parse_id_list(result.stdout))
-        end)
     end)
 end
 
 --- Create an emulator from a profile via `android emulator create --profile=<p>`.
---- The CLI picks the AVD name and SDK image; no extra prompting is required.
+--- The CLI picks the AVD name and SDK image, so no extra prompting is needed.
 ---@param profile string profile name from `list_emulator_profiles`
 ---@param callback fun(ok: boolean, stdout: string)
 function M.create_emulator(profile, callback)
-    local exe = resolve_binary()
-    if not exe then
-        callback(false, "")
-        return
-    end
-    vim.system({ exe, "emulator", "create", "--profile=" .. profile }, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure(("emulator create --profile=%s"):format(profile), result)
-                callback(false, result.stdout or "")
-                return
-            end
-            callback(true, result.stdout or "")
-        end)
+    local action = ("emulator create --profile=%s"):format(profile)
+    run({ "emulator", "create", "--profile=" .. profile }, action, function(result)
+        callback(true, stdout_of(result))
+    end, function(result)
+        callback(false, stdout_of(result))
     end)
 end
 
@@ -230,20 +223,10 @@ end
 ---@param serial string e.g. "emulator-5554"
 ---@param callback fun(ok: boolean)
 function M.stop_emulator(serial, callback)
-    local exe = resolve_binary()
-    if not exe then
+    run({ "emulator", "stop", serial }, "emulator stop", function()
+        callback(true)
+    end, function()
         callback(false)
-        return
-    end
-    vim.system({ exe, "emulator", "stop", serial }, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure("emulator stop", result)
-                callback(false)
-                return
-            end
-            callback(true)
-        end)
     end)
 end
 
@@ -254,18 +237,13 @@ end
 ---@param opts { device?: string, activity?: string, debug?: boolean, type?: string }
 ---@param callback fun(ok: boolean, message: string)
 function M.run_apks(apks, opts, callback)
-    local exe = resolve_binary()
-    if not exe then
-        callback(false, "android-cli not available")
-        return
-    end
     if #apks == 0 then
         callback(false, "no APKs supplied")
         return
     end
     opts = opts or {}
 
-    local args = { exe, "run", "--apks=" .. table.concat(apks, ",") }
+    local args = { "run", "--apks=" .. table.concat(apks, ",") }
     if opts.device then
         table.insert(args, "--device=" .. opts.device)
     end
@@ -279,46 +257,31 @@ function M.run_apks(apks, opts, callback)
         table.insert(args, "--type=" .. opts.type)
     end
 
-    vim.system(args, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure("run", result)
-                callback(false, vim.trim(result.stderr or ""))
-                return
-            end
-            callback(true, vim.trim(result.stdout or ""))
-        end)
+    run(args, "run", function(result)
+        callback(true, vim.trim(result.stdout or ""))
+    end, function(result)
+        callback(false, result and vim.trim(result.stderr or "") or "android-cli not available")
     end)
 end
 
 --- Search the Android Knowledge Base via `android docs search "<query>"`.
---- Output is assumed to be one `kb://` URL per non-empty line; lines that
+--- Output is assumed to be one `kb://` URL per non-empty line. Lines that
 --- don't start with `kb://` are passed through verbatim so a richer
 --- "title\turl" format from future CLI versions still renders something.
 ---@param query string
 ---@param callback fun(results: string[])
 function M.docs_search(query, callback)
-    local exe = resolve_binary()
-    if not exe then
+    run({ "docs", "search", query }, "docs search", function(result)
+        local results = {}
+        for line in (result.stdout or ""):gmatch "[^\r\n]+" do
+            local trimmed = vim.trim(line)
+            if #trimmed > 0 then
+                table.insert(results, trimmed)
+            end
+        end
+        callback(results)
+    end, function()
         callback {}
-        return
-    end
-    vim.system({ exe, "docs", "search", query }, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure("docs search", result)
-                callback {}
-                return
-            end
-            local results = {}
-            for line in (result.stdout or ""):gmatch "[^\r\n]+" do
-                local trimmed = vim.trim(line)
-                if #trimmed > 0 then
-                    table.insert(results, trimmed)
-                end
-            end
-            callback(results)
-        end)
     end)
 end
 
@@ -326,20 +289,10 @@ end
 ---@param url string e.g. "kb://android/topic/performance/overview"
 ---@param callback fun(ok: boolean, body: string)
 function M.docs_fetch(url, callback)
-    local exe = resolve_binary()
-    if not exe then
-        callback(false, "")
-        return
-    end
-    vim.system({ exe, "docs", "fetch", url }, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure("docs fetch", result)
-                callback(false, result.stdout or "")
-                return
-            end
-            callback(true, result.stdout or "")
-        end)
+    run({ "docs", "fetch", url }, "docs fetch", function(result)
+        callback(true, stdout_of(result))
+    end, function(result)
+        callback(false, stdout_of(result))
     end)
 end
 
@@ -347,24 +300,14 @@ end
 ---@param opts { output: string, annotate: boolean }
 ---@param callback fun(ok: boolean, output_path: string)
 function M.screen_capture(opts, callback)
-    local exe = resolve_binary()
-    if not exe then
-        callback(false, opts.output)
-        return
-    end
-    local args = { exe, "screen", "capture", "--output=" .. opts.output }
+    local args = { "screen", "capture", "--output=" .. opts.output }
     if opts.annotate then
         table.insert(args, "--annotate")
     end
-    vim.system(args, { text = true }, function(result)
-        vim.schedule(function()
-            if result.code ~= 0 then
-                notify_failure("screen capture", result)
-                callback(false, opts.output)
-                return
-            end
-            callback(true, opts.output)
-        end)
+    run(args, "screen capture", function()
+        callback(true, opts.output)
+    end, function()
+        callback(false, opts.output)
     end)
 end
 
