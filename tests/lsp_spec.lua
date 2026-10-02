@@ -160,25 +160,65 @@ check("docs fetch output drops the progress and header lines", function()
     assert(body == "# Logcat\n\nLogcat is a command-line tool.", vim.inspect(body))
 end)
 
+-- A fake `android` that, like android-cli 1.0, exits 0 whether or not it
+-- creates anything. FAKE_CREATE_OK decides, and created AVDs go to a list.
+local cli_dir = vim.fn.tempname()
+vim.fn.mkdir(cli_dir, "p")
+local cli_args = cli_dir .. "/args"
+local cli_avds = cli_dir .. "/avds"
+vim.fn.writefile({}, cli_avds)
+vim.fn.writefile({
+    "#!/bin/sh",
+    'case "$*" in',
+    "-V) echo 1.0.1 ;;",
+    '"emulator list") cat ' .. cli_avds .. " ;;",
+    '"emulator create --list-profiles") echo medium_phone ;;',
+    '"emulator create "*) echo "$*" > ' .. cli_args .. "",
+    '  if [ -n "$FAKE_CREATE_OK" ]; then echo "$3" >> ' .. cli_avds .. '; echo "Successfully created device"',
+    '  else echo "Error: no system image"; fi ;;',
+    "esac",
+}, cli_dir .. "/android")
+vim.uv.fs_chmod(cli_dir .. "/android", tonumber("755", 8))
+vim.env.PATH = cli_dir .. ":" .. vim.env.PATH
+config.setup { android_cli = true }
+cli.reset_cache()
+
+local notes = {}
+vim.notify = function(msg)
+    table.insert(notes, msg)
+end
+vim.ui.select = function(items, _, on_choice)
+    on_choice(items[1])
+end
+
+local function create(ok)
+    vim.env.FAKE_CREATE_OK = ok and "1" or nil
+    notes = {}
+    require("droid.android").create_emulator()
+    vim.wait(5000, function()
+        return table.concat(notes, "\n"):find("Emulator", 1, true) ~= nil
+            and #notes > 0
+            and (notes[#notes]:find("created", 1, true) or notes[#notes]:find("not created", 1, true))
+    end)
+    return notes[#notes] or ""
+end
+
 check("emulator create passes the profile as an argument", function()
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, "p")
-    local log = dir .. "/args"
-    vim.fn.writefile({
-        "#!/bin/sh",
-        'if [ "$1" = "-V" ]; then echo 1.0.1; exit 0; fi',
-        'echo "$*" > ' .. log,
-    }, dir .. "/android")
-    vim.uv.fs_chmod(dir .. "/android", tonumber("755", 8))
-    vim.env.PATH = dir .. ":" .. vim.env.PATH
-    config.setup { android_cli = true }
-    cli.reset_cache()
-    local ok
-    cli.create_emulator("medium_phone", function(success)
-        ok = success
-    end)
-    vim.wait(3000, function()
-        return ok ~= nil
-    end)
-    assert(ok == true and vim.fn.readfile(log)[1] == "emulator create medium_phone", vim.inspect(vim.fn.readfile(log)))
+    create(true)
+    assert(vim.fn.readfile(cli_args)[1] == "emulator create medium_phone", vim.inspect(vim.fn.readfile(cli_args)))
+end)
+
+check("emulator create shows the CLI output in the panel and reports the AVD", function()
+    vim.fn.writefile({}, cli_avds)
+    local msg = create(true)
+    assert(msg:find("Emulator created: medium_phone", 1, true), msg)
+    local buffer = require "droid.buffer"
+    local panel = table.concat(vim.api.nvim_buf_get_lines(buffer.buffer_id, 0, -1, false), "\n")
+    assert(buffer.buffer_type == "task" and panel:find("Successfully created device", 1, true), panel)
+end)
+
+check("emulator create reports a failure the CLI exits 0 for", function()
+    vim.fn.writefile({}, cli_avds)
+    local msg = create(false)
+    assert(msg:find("Emulator not created: Error: no system image", 1, true), msg)
 end)

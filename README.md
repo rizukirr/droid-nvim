@@ -344,7 +344,7 @@ type name interpolated by the language server. Add your own via
 
 The jump commands accept modifiers to open a split, for example `:vert DroidGradleModule`.
 
-Gradle output runs in the droid panel. Closing the panel leaves the task running, and the panel opens again if the task fails.
+Gradle tasks run in the droid panel. Closing the panel leaves the task running, and the panel opens again if the task fails.
 
 ### Device
 
@@ -353,6 +353,8 @@ Gradle output runs in the droid panel. Closing the panel leaves the task running
 | `:DroidEmulator` | Start an emulator, or pick "+ Create New Emulator" to create one |
 | `:DroidEmulatorStop` | Stop emulator |
 | `:DroidMirror` | Mirror device screen (scrcpy) |
+
+Creating an emulator runs in the droid panel, so you can watch its output, and a notification says whether the AVD was created. Starting one runs in the background and notifies once it has booted or failed.
 
 ### ADB Actions
 

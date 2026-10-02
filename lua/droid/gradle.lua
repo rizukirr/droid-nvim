@@ -74,41 +74,14 @@ local function argv(g, args)
     return vim.iter({ g.gradlew, args }):flatten(math.huge):totable()
 end
 
---- Run gradlew in a fresh terminal in the panel. When it fails, the panel
---- opens and takes focus so the output is in front of you.
+--- Run gradlew in a fresh terminal in the panel.
 ---@param g { gradlew: string|string[], cwd: string }
 ---@param args string|string[]
 ---@param callback? fun(success: boolean, exit_code: integer)
 local function run_gradle_task(g, args, callback)
     -- List form, so paths with spaces reach the PTY verbatim instead of going
     -- through a shell (notably the gradlew.bat path on Windows cmd.exe).
-    local cmd = argv(g, args)
-    local buf = buffer.get_or_create("gradle", "horizontal")
-    local ok, job_id = pcall(vim.api.nvim_buf_call, buf, function()
-        return vim.fn.jobstart(cmd, {
-            term = true,
-            cwd = g.cwd,
-            on_exit = function(id, exit_code)
-                buffer.release_job(id)
-                vim.schedule(function()
-                    if exit_code ~= 0 and buffer.buffer_id == buf then
-                        buffer.show "horizontal"
-                        buffer.focus()
-                        buffer.scroll_to_bottom()
-                    end
-                    call(callback, exit_code == 0, exit_code)
-                end)
-            end,
-        })
-    end)
-    if not ok or job_id <= 0 then
-        vim.notify("Could not start Gradle: " .. tostring(job_id), vim.log.levels.ERROR)
-        vim.schedule(function()
-            call(callback, false, -1)
-        end)
-        return
-    end
-    buffer.set_current_job(job_id)
+    buffer.run_task(argv(g, args), { cwd = g.cwd }, callback)
 end
 
 --- Run one Gradle invocation, notify how it went, then call
@@ -278,7 +251,7 @@ end
 
 function M.stop()
     local buf_info = buffer.get_buffer_info()
-    if buf_info.job_id and buf_info.type == "gradle" then
+    if buf_info.job_id and buf_info.type == "task" then
         buffer.stop_current_job()
         vim.notify("Gradle task stopped", vim.log.levels.INFO)
     else
