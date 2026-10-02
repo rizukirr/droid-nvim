@@ -243,9 +243,9 @@ function M.stop_emulator(serial, callback)
     end)
 end
 
---- Deploy one or more APKs via `android run --apks=…`.
---- Replaces the `adb install` + `am start` sequence with a single CLI call
---- that handles multi-APK splits and activity launch in one shot.
+--- Deploy one or more APKs via `android run --apks=…`, in the droid panel so
+--- its progress is visible. Replaces the `adb install` + `am start` sequence
+--- with a single CLI call that handles multi-APK splits and activity launch.
 ---@param apks string[] absolute APK paths
 ---@param opts { device?: string, activity?: string, debug?: boolean, type?: string }
 ---@param callback fun(ok: boolean, message: string)
@@ -256,7 +256,11 @@ function M.run_apks(apks, opts, callback)
     end
     opts = opts or {}
 
-    local args = { "run", "--apks=" .. table.concat(apks, ",") }
+    local args = M.argv { "run", "--apks=" .. table.concat(apks, ",") }
+    if not args then
+        callback(false, "android-cli not available")
+        return
+    end
     if opts.device then
         table.insert(args, "--device=" .. opts.device)
     end
@@ -270,10 +274,11 @@ function M.run_apks(apks, opts, callback)
         table.insert(args, "--type=" .. opts.type)
     end
 
-    run(args, "run", function(result)
-        callback(true, vim.trim(result.stdout or ""))
-    end, function(result)
-        callback(false, result and vim.trim(result.stderr or "") or "android-cli not available")
+    require("droid.buffer").run_task(args, nil, function(ok, code)
+        if not ok then
+            vim.notify(("android-cli run failed (exit %d), see the droid panel"):format(code), vim.log.levels.ERROR)
+        end
+        callback(ok, ok and "" or ("exit " .. code))
     end)
 end
 

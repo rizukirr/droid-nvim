@@ -77,7 +77,7 @@ end
 --- Run gradlew in a fresh terminal in the panel.
 ---@param g { gradlew: string|string[], cwd: string }
 ---@param args string|string[]
----@param callback? fun(success: boolean, exit_code: integer)
+---@param callback? fun(success: boolean, exit_code: integer, lines: string[])
 local function run_gradle_task(g, args, callback)
     -- List form, so paths with spaces reach the PTY verbatim instead of going
     -- through a shell (notably the gradlew.bat path on Windows cmd.exe).
@@ -121,7 +121,8 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 --- The project's real variants, read from Gradle's install task group:
 --- `buildable` from uninstall<Variant> (every variant) and `installable`
 --- from install<Variant> (unsigned release builds have none). Cached per
---- project until a build script is saved or :DroidSync runs.
+--- project until a build script is saved or :DroidSync runs. Discovery runs
+--- in the panel, so Gradle's configuration progress is visible.
 ---@param g { gradlew: string|string[], cwd: string }
 ---@param callback fun(lists: { buildable: string[], installable: string[] }|nil)
 local function list_variants(g, callback)
@@ -130,39 +131,32 @@ local function list_variants(g, callback)
         return
     end
 
-    vim.notify("Discovering build variants...", vim.log.levels.INFO)
+    run_gradle_task(g, { "tasks", "--group=install" }, function(success, code, lines)
+        if not success then
+            vim.notify(
+                ("Failed to discover build variants (exit code: %d), see the droid panel"):format(code),
+                vim.log.levels.ERROR
+            )
+            callback(nil)
+            return
+        end
 
-    vim.system(argv(g, { "-q", "tasks", "--group=install" }), { cwd = g.cwd, text = true }, function(obj)
-        vim.schedule(function()
-            if obj.code ~= 0 then
-                local last = ""
-                for line in (obj.stderr or ""):gmatch "[^\r\n]+" do
-                    if vim.trim(line) ~= "" then
-                        last = vim.trim(line)
-                    end
-                end
-                local detail = last ~= "" and (": " .. last) or ""
-                vim.notify("Failed to discover build variants" .. detail, vim.log.levels.ERROR)
-                callback(nil)
-                return
+        local lists = { buildable = {}, installable = {} }
+        local seen = { buildable = {}, installable = {} }
+        local function add(kind, name)
+            if name and name ~= "All" and not name:match "AndroidTest$" and not seen[kind][name] then
+                seen[kind][name] = true
+                table.insert(lists[kind], name)
             end
+        end
+        -- The terminal wraps long lines, so a task name may be the whole line.
+        for _, line in ipairs(lines) do
+            add("buildable", (line .. " "):match "^uninstall([%w_]+)%s")
+            add("installable", (line .. " "):match "^install([%w_]+)%s")
+        end
 
-            local lists = { buildable = {}, installable = {} }
-            local seen = { buildable = {}, installable = {} }
-            local function add(kind, name)
-                if name and name ~= "All" and not name:match "AndroidTest$" and not seen[kind][name] then
-                    seen[kind][name] = true
-                    table.insert(lists[kind], name)
-                end
-            end
-            for line in (obj.stdout or ""):gmatch "[^\r\n]+" do
-                add("buildable", line:match "^uninstall([%w_]+)%s+%-")
-                add("installable", line:match "^install([%w_]+)%s+%-")
-            end
-
-            variant_cache[g.cwd] = lists
-            callback(lists)
-        end)
+        variant_cache[g.cwd] = lists
+        callback(lists)
     end)
 end
 
