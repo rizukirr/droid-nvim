@@ -350,11 +350,11 @@ Gradle tasks run in the droid panel. Closing the panel leaves the task running, 
 
 | Command | Description |
 | --- | --- |
-| `:DroidEmulator` | Start an emulator, or pick "+ Create New Emulator" to create one |
+| `:DroidEmulator` | Start an emulator, or pick "+ Create New Emulator" or "- Delete Emulator" |
 | `:DroidEmulatorStop` | Stop emulator |
 | `:DroidMirror` | Mirror device screen (scrcpy) |
 
-Creating an emulator runs in the droid panel, so you can watch its output, and a notification says whether the AVD was created. Starting one runs in the background and notifies once it has booted or failed.
+Deleting an emulator asks which one, then asks to confirm, since its data is lost. Creating an emulator runs in the droid panel, so you can watch its output, and a notification says whether the AVD was created. Starting one runs in the background and notifies once it has booted or failed.
 
 ### ADB Actions
 

@@ -121,20 +121,16 @@ local function notify_failure(action, result)
     vim.notify(msg, vim.log.levels.ERROR)
 end
 
---- Parse a list-style CLI output (one identifier per line, optional
---- trailing metadata) into a clean array of identifiers. Tolerates:
----   - blank lines and indented entries
----   - trailing tabs / spaces / metadata ("name\tstatus", "name (path)")
----   - header lines that don't start with an identifier character
---- Returns only tokens whose first character is a letter, digit, or
---- underscore. AVD names and profile names match that shape. ANSI
---- escapes, prompts, and decorative headers don't.
+--- Parse a list-style CLI output, one identifier per line, into an array.
+--- A line counts only when the identifier is all of it. AVD and profile
+--- names have that shape. Sentences the CLI adds, such as its "A new version
+--- of Android CLI is available" notice, do not.
 ---@param stdout string
 ---@return string[]
-local function parse_id_list(stdout)
+function M._parse_id_list(stdout)
     local out = {}
     for line in (stdout or ""):gmatch "[^\r\n]+" do
-        local token = vim.trim(line):match "^[%w_][%w_%-%.]*"
+        local token = vim.trim(line):match "^[%w_][%w_%-%.]*$"
         if token then
             table.insert(out, token)
         end
@@ -183,7 +179,7 @@ end
 ---@param callback fun(avds: string[])
 function M.list_avds(callback)
     run({ "emulator", "list" }, "emulator list", function(result)
-        callback(parse_id_list(result.stdout))
+        callback(M._parse_id_list(result.stdout))
     end, function()
         callback {}
     end)
@@ -214,7 +210,7 @@ end
 ---@param callback fun(profiles: string[])
 function M.list_emulator_profiles(callback)
     run({ "emulator", "create", "--list-profiles" }, "emulator create --list-profiles", function(result)
-        callback(parse_id_list(result.stdout))
+        callback(M._parse_id_list(result.stdout))
     end, function()
         callback {}
     end)
@@ -229,6 +225,19 @@ function M.create_emulator(profile, callback)
         callback(true, stdout_of(result))
     end, function(result)
         callback(false, stdout_of(result))
+    end)
+end
+
+--- Delete an AVD via `android emulator remove <name>`. `callback(stdout)`
+--- runs when the CLI returns. It exits 0 even when it removes nothing, so
+--- callers check the AVD list themselves.
+---@param name string AVD name
+---@param callback fun(stdout: string)
+function M.remove_emulator(name, callback)
+    run({ "emulator", "remove", name }, "emulator remove " .. name, function(result)
+        callback(stdout_of(result))
+    end, function(result)
+        callback(stdout_of(result))
     end)
 end
 

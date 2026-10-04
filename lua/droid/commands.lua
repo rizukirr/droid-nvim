@@ -149,7 +149,8 @@ function M.setup_commands()
         nav.version(opts.mods)
     end, {})
 
-    -- The picker's "+ Create New Emulator" entry creates an AVD.
+    -- The picker's "+ Create New Emulator" and "- Delete Emulator" entries
+    -- create and delete AVDs.
     vim.api.nvim_create_user_command("DroidEmulator", function()
         android.launch_emulator()
     end, {})

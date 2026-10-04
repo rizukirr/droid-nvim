@@ -708,10 +708,74 @@ function M.create_emulator()
     end)
 end
 
+--- Delete `avd`, then `done(ok, detail)` with what the tool printed.
+---@param avd string
+---@param done fun(ok: boolean, detail: string)
+local function remove_avd(avd, done)
+    local cli = require "droid.backends.android_cli"
+    if cli.prefers "emulator" then
+        -- The CLI exits 0 even when it removes nothing, so check the list.
+        cli.remove_emulator(avd, function(stdout)
+            cli.list_avds(function(after)
+                done(not vim.list_contains(after, avd), vim.trim(stdout):match "[^\r\n]*")
+            end)
+        end)
+        return
+    end
+
+    local avdmanager = validate_avdmanager()
+    if not avdmanager then
+        return
+    end
+    vim.system({ avdmanager, "delete", "avd", "-n", avd }, { env = emulator_env(), text = true }, function(obj)
+        vim.schedule(function()
+            done(obj.code == 0, vim.trim(obj.stderr or ""):match "[^\r\n]*")
+        end)
+    end)
+end
+
+--- Ask which of `avds` to delete, confirm, then delete it.
+---@param avds string[]
+local function prompt_and_delete(avds)
+    -- Scheduled: a picker opened from inside another picker's callback can
+    -- lose focus while the first one is still closing.
+    vim.schedule(function()
+        vim.ui.select(avds, { prompt = "Select emulator to delete:" }, function(avd)
+            if not avd then
+                return
+            end
+            vim.schedule(function()
+                -- "No" comes first, so a stray Enter keeps the emulator.
+                local prompt = ("Delete emulator %s? Its data is lost"):format(avd)
+                vim.ui.select({ "No", "Yes" }, { prompt = prompt }, function(answer)
+                    if answer ~= "Yes" then
+                        return
+                    end
+                    remove_avd(avd, function(ok, detail)
+                        if ok then
+                            vim.notify("Emulator deleted: " .. avd, vim.log.levels.INFO)
+                        else
+                            vim.notify(
+                                ("Emulator %s not deleted%s"):format(avd, detail ~= "" and (": " .. detail) or ""),
+                                vim.log.levels.ERROR
+                            )
+                        end
+                    end)
+                end)
+            end)
+        end)
+    end)
+end
+
 local CREATE_EMULATOR_SENTINEL = "+ Create New Emulator"
+local DELETE_EMULATOR_SENTINEL = "- Delete Emulator"
 
 local function prompt_and_launch(avds, launch_fn)
+    local existing = vim.list_slice(avds)
     table.insert(avds, CREATE_EMULATOR_SENTINEL)
+    if #existing > 0 then
+        table.insert(avds, DELETE_EMULATOR_SENTINEL)
+    end
     vim.ui.select(avds, {
         prompt = "Select Emulator to launch:",
         format_item = function(avd)
@@ -723,6 +787,10 @@ local function prompt_and_launch(avds, launch_fn)
         end
         if choice == CREATE_EMULATOR_SENTINEL then
             M.create_emulator()
+            return
+        end
+        if choice == DELETE_EMULATOR_SENTINEL then
+            prompt_and_delete(existing)
             return
         end
         launch_fn(choice)
