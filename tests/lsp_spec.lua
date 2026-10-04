@@ -176,6 +176,16 @@ vim.fn.writefile({
     '"emulator create "*) echo "$*" > ' .. cli_args .. "",
     '  if [ -n "$FAKE_CREATE_OK" ]; then echo "$3" >> ' .. cli_avds .. '; echo "Successfully created device"',
     '  else echo "Error: no system image"; fi ;;',
+    '"emulator remove "*)',
+    '  if [ -n "$FAKE_REMOVE_OK" ]; then grep -vx "$3" '
+        .. cli_avds
+        .. " > "
+        .. cli_avds
+        .. ".new; mv "
+        .. cli_avds
+        .. ".new "
+        .. cli_avds,
+    '  else echo "Device $3 is running"; fi ;;',
     "esac",
 }, cli_dir .. "/android")
 vim.uv.fs_chmod(cli_dir .. "/android", tonumber("755", 8))
@@ -187,8 +197,16 @@ local notes = {}
 vim.notify = function(msg)
     table.insert(notes, msg)
 end
-vim.ui.select = function(items, _, on_choice)
-    on_choice(items[1])
+-- Answers by prompt, else the first item.
+local selects = {}
+local answers = {}
+vim.ui.select = function(items, opts, on_choice)
+    table.insert(selects, { prompt = opts.prompt, items = vim.list_slice(items) })
+    local answer = answers[opts.prompt]
+    if answer == nil then
+        answer = items[1]
+    end
+    on_choice(answer)
 end
 
 local function create(ok)
@@ -221,4 +239,65 @@ check("emulator create reports a failure the CLI exits 0 for", function()
     vim.fn.writefile({}, cli_avds)
     local msg = create(false)
     assert(msg:find("Emulator not created: Error: no system image", 1, true), msg)
+end)
+
+check("the CLI's update notice is not read as emulator names", function()
+    local names = cli._parse_id_list(table.concat({
+        "medium_tablet",
+        "medium_phone",
+        "",
+        "A new version of Android CLI is available (1.0.16500706).",
+        "Please run 'android update' to install it.",
+    }, "\n"))
+    assert(vim.deep_equal(names, { "medium_tablet", "medium_phone" }), vim.inspect(names))
+end)
+
+-- Open :DroidEmulator's picker, choose "- Delete Emulator", then `avd`, then
+-- answer the confirmation with `confirm`. Returns the last notification.
+local function delete(avd, confirm, remove_ok)
+    vim.fn.writefile({ "medium_phone", "medium_tablet" }, cli_avds)
+    vim.env.FAKE_REMOVE_OK = remove_ok and "1" or nil
+    notes, selects = {}, {}
+    answers = {
+        ["Select Emulator to launch:"] = "- Delete Emulator",
+        ["Select emulator to delete:"] = avd,
+        [("Delete emulator %s? Its data is lost"):format(avd)] = confirm,
+    }
+    require("droid.android").launch_emulator()
+    vim.wait(3000, function()
+        return #notes > 0
+    end)
+    answers = {}
+    return notes[#notes] or "", vim.fn.readfile(cli_avds)
+end
+
+check("deleting an emulator asks which one, confirms, then removes it", function()
+    local msg, left = delete("medium_phone", "Yes", true)
+    assert(msg == "Emulator deleted: medium_phone", msg)
+    assert(vim.deep_equal(left, { "medium_tablet" }), vim.inspect(left))
+    assert(vim.deep_equal(selects[2].items, { "medium_phone", "medium_tablet" }), vim.inspect(selects[2]))
+    assert(vim.deep_equal(selects[3].items, { "No", "Yes" }), vim.inspect(selects[3]))
+end)
+
+check("declining the confirmation keeps the emulator", function()
+    local msg, left = delete("medium_phone", "No", true)
+    assert(msg == "" and #left == 2, msg .. vim.inspect(left))
+end)
+
+check("a delete the CLI exits 0 for but did not do is reported", function()
+    local msg, left = delete("medium_phone", "Yes", false)
+    assert(msg == "Emulator medium_phone not deleted: Device medium_phone is running", msg)
+    assert(#left == 2, vim.inspect(left))
+end)
+
+check("with no emulators the picker offers create but not delete", function()
+    vim.fn.writefile({}, cli_avds)
+    selects = {}
+    answers = { ["Select Emulator to launch:"] = false }
+    require("droid.android").launch_emulator()
+    vim.wait(2000, function()
+        return #selects > 0
+    end)
+    answers = {}
+    assert(vim.deep_equal(selects[1].items, { "+ Create New Emulator" }), vim.inspect(selects[1]))
 end)
