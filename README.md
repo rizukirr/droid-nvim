@@ -384,6 +384,22 @@ When `android_cli` is active (default `"auto"` + `android` on PATH), the emulato
 
 > **Note:** `android emulator` is not supported on Windows; the emulator commands fall back to `avdmanager`/`emulator` there even when `android_cli` is active.
 
+### Android Studio (optional)
+
+These commands use a running Android Studio through the `android` CLI. They need android-cli on PATH and Android Studio Quail 2 or newer running with the project open and synced. Each one starts the CLI, so expect a couple of seconds.
+
+| Command | Description |
+| --- | --- |
+| `:DroidLint` | Show Studio's errors, warnings and Android Lint for the current file as diagnostics |
+| `:DroidDeclaration [symbol]` | Jump to a symbol's declaration using Studio's index (default: the word under the cursor) |
+| `:DroidUsages [symbol]` | List a symbol's usages in the quickfix list using Studio's index |
+| `:DroidVersions [ids...]` | Latest stable and preview versions, e.g. `:DroidVersions androidx.compose.ui:ui agp kotlin`. With no arguments, looks up the `group:artifact` on the current line |
+| `:DroidStudioOpen` | Open the current file in Studio |
+
+`:DroidDeclaration` and `:DroidUsages` reach across modules, which helps where the Kotlin language server cannot (see Known Limitations). Studio reads files from disk, so save before `:DroidLint`.
+
+With `XDG_CONFIG_HOME` set, Studio registers itself in `$XDG_CONFIG_HOME/.android` while the CLI looks in `~/.android` and finds no Studio. droid detects this and points the CLI at Studio's folder for these commands. The CLI installs a copy of itself there the first time (about 160 MB). `:checkhealth droid` shows whether Studio is reachable.
+
 ### Logcat
 
 | Command | Description |

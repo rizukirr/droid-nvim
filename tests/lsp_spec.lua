@@ -340,3 +340,58 @@ check("Gradle gets ANDROID_HOME from droid only when the environment has none", 
     config.get().android.android_home = nil
     android._cached_sdk_path = nil
 end)
+
+local studio = require "droid.studio"
+
+-- Output captured from android-cli 1.0.16486076 with Android Studio Quail 4.
+check("Studio analyze-file output parses into diagnostics", function()
+    local issues = studio._parse_issues(table.concat({
+        "Analyzing file: /p/OnboardingScreen.kt",
+        "WARNING in /p/OnboardingScreen.kt",
+        "line: 94, column: 0",
+        'message: Function "BasicLayout" is never used',
+        "----------------------------------------",
+        "INFO in /p/OnboardingScreen.kt",
+        "line: 36, column: 0",
+        "message: Missing trailing comma",
+        "----------------------------------------",
+        "INFO in /p/OnboardingScreen.kt",
+        "line: 99, column: 0",
+        "message: Open in browser (Ctrl+Click, Ctrl+B)",
+        "----------------------------------------",
+    }, "\n"))
+    assert(#issues == 2, vim.inspect(issues))
+    assert(issues[1].lnum == 93 and issues[1].severity == vim.diagnostic.severity.WARN, vim.inspect(issues[1]))
+    assert(issues[1].message == 'Function "BasicLayout" is never used', issues[1].message)
+    assert(issues[2].lnum == 35 and issues[2].severity == vim.diagnostic.severity.INFO, vim.inspect(issues[2]))
+    assert(#studio._parse_issues "Analyzing file: /p/A.kt\nNo issues found!" == 0)
+end)
+
+check("Studio --short output parses into file and line", function()
+    local file = vim.fn.tempname() .. ".kt"
+    vim.fn.writefile({ "a", "b" }, file)
+    local found =
+        studio._parse_locations("Finding usages for symbol: AppButton\n" .. file .. ":2\n/no/such/file.kt:9\n")
+    assert(vim.deep_equal(found, { { filename = file, lnum = 2 } }), vim.inspect(found))
+end)
+
+check("the CLI is pointed at the folder Studio registered in", function()
+    local home, xdg, user_home = vim.env.HOME, vim.env.XDG_CONFIG_HOME, vim.env.ANDROID_USER_HOME
+    local fake_home = vim.fn.tempname()
+    vim.env.HOME, vim.env.XDG_CONFIG_HOME, vim.env.ANDROID_USER_HOME = fake_home, fake_home .. "/.config", nil
+    vim.fn.mkdir(fake_home .. "/.android/cli/studio", "p")
+    vim.fn.mkdir(fake_home .. "/.config/.android/cli/studio", "p")
+
+    assert(studio.registry_env() == nil, "no Studio registered anywhere")
+    vim.fn.writefile({ "32981 id 1" }, fake_home .. "/.config/.android/cli/studio/123")
+    assert(
+        vim.deep_equal(studio.registry_env(), { ANDROID_USER_HOME = fake_home .. "/.config/.android" }),
+        vim.inspect(studio.registry_env())
+    )
+    vim.fn.writefile({ "32981 id 1" }, fake_home .. "/.android/cli/studio/123")
+    assert(studio.registry_env() == nil, "the CLI already sees Studio in its own folder")
+    vim.env.ANDROID_USER_HOME = "/custom"
+    assert(studio.registry_env() == nil, "the user's ANDROID_USER_HOME was overridden")
+
+    vim.env.HOME, vim.env.XDG_CONFIG_HOME, vim.env.ANDROID_USER_HOME = home, xdg, user_home
+end)
