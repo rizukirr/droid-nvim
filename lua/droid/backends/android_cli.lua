@@ -356,6 +356,26 @@ function M.docs_fetch(url, callback)
     end)
 end
 
+--- Write the UI tree of the screen a device is showing, as pretty-printed
+--- JSON, via `android layout`. The first call on a device installs the
+--- CLI's layout helper there.
+---@param opts { output: string, device?: string, full?: boolean } `full` adds non-interactive and hidden elements
+---@param callback fun(ok: boolean)
+function M.layout(opts, callback)
+    local args = { "layout", "--pretty", "--output=" .. opts.output }
+    if opts.device then
+        table.insert(args, "--device=" .. opts.device)
+    end
+    if opts.full then
+        table.insert(args, "--full")
+    end
+    run(args, "layout", function()
+        callback(true)
+    end, function()
+        callback(false)
+    end)
+end
+
 --- Capture a screenshot of the connected device via `android screen capture`.
 ---@param opts { output: string, annotate: boolean }
 ---@param callback fun(ok: boolean, output_path: string)

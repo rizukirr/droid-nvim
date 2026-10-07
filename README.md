@@ -378,6 +378,8 @@ These commands require the [`android` CLI](https://developer.android.com/tools/a
 | --- | --- |
 | `:DroidScreenshot [path]` | Capture device screen; opens the PNG with the OS default viewer |
 | `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
+| `:DroidLayout` | Show the UI tree of the screen a device is showing, as JSON: text, resource IDs, content descriptions and bounds. Run it again to refresh |
+| `:DroidLayout!` | The same, including non-interactive and hidden elements |
 | `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
 | `:DroidCreate` | Create a new Android project from a template: asks for the app name, application ID and folder, then offers to switch Neovim to it |
 | `:DroidSdk` | List installed SDK packages, with available updates, in the droid panel |
