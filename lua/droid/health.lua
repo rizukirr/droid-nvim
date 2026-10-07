@@ -10,13 +10,14 @@ local is_windows = vim.fn.has "win32" == 1
 --- Run a command for a few seconds at most and return its output, both
 --- streams together, or nil when it could not run.
 ---@param cmd string[]|nil
+---@param env? table<string, string>
 ---@return string|nil
-local function output_of(cmd)
+local function output_of(cmd, env)
     if not cmd then
         return nil
     end
     local ok, result = pcall(function()
-        return vim.system(cmd, { text = true }):wait(10000)
+        return vim.system(cmd, { text = true, env = env }):wait(10000)
     end)
     if not ok then
         return nil
@@ -149,11 +150,21 @@ local function check_android_cli()
 
     h.info "CLI-only commands available: :DroidScreenshot, :DroidDocs"
 
-    local studio = output_of(cli.argv { "studio", "check" }) or ""
-    if studio:find("No running Studio instances", 1, true) then
-        h.info "Android Studio: not running"
-    elseif vim.trim(studio) ~= "" then
-        h.info("Android Studio:\n" .. vim.trim(studio))
+    -- :DroidLint, :DroidDeclaration, :DroidUsages, :DroidVersions and
+    -- :DroidStudioOpen need Studio running with the project open.
+    local registry_env = require("droid.studio").registry_env()
+    if registry_env then
+        h.info(
+            ("Android Studio registers in %s, not where android-cli looks, so droid points the CLI there"):format(
+                registry_env.ANDROID_USER_HOME
+            )
+        )
+    end
+    local studio = (output_of(cli.argv { "studio", "check" }, registry_env) or ""):match "(pid:.*)$"
+    if studio then
+        h.ok("Android Studio is running:\n" .. vim.trim(studio))
+    else
+        h.info "Android Studio is not running, so the Studio commands (:DroidLint, :DroidDeclaration, ...) are unavailable"
     end
 end
 

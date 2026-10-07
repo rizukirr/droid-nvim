@@ -203,6 +203,25 @@ function M.setup_commands()
         end)
     end, { nargs = "?", complete = "file", bang = true })
 
+    -- Android Studio features, through android-cli. Studio must be running
+    -- with the project open.
+    local studio = require "droid.studio"
+    vim.api.nvim_create_user_command("DroidLint", function()
+        studio.lint()
+    end, { desc = "Show Android Studio's inspections and Android Lint for this file" })
+    vim.api.nvim_create_user_command("DroidDeclaration", function(opts)
+        studio.declaration(opts.args)
+    end, { nargs = "?", desc = "Jump to a symbol's declaration using Android Studio's index" })
+    vim.api.nvim_create_user_command("DroidUsages", function(opts)
+        studio.usages(opts.args)
+    end, { nargs = "?", desc = "List a symbol's usages using Android Studio's index" })
+    vim.api.nvim_create_user_command("DroidVersions", function(opts)
+        studio.versions(opts.fargs)
+    end, { nargs = "*", desc = "Look up the latest versions of libraries and tools" })
+    vim.api.nvim_create_user_command("DroidStudioOpen", function()
+        studio.open()
+    end, { desc = "Open this file in Android Studio" })
+
     -- :DroidDocs <query>   search Android Knowledge Base, fetch picked result
     vim.api.nvim_create_user_command("DroidDocs", function(opts)
         local cli = require "droid.backends.android_cli"
