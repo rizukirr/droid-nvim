@@ -5,11 +5,12 @@ Android development workflow for Neovim. Build, run, and debug Android apps with
 ## Requirements
 
 - Neovim 0.11+
-- Android SDK with `adb` in PATH
+- Android SDK. droid finds `adb`, `emulator` and `avdmanager` inside it
 - `gradlew` in project root
-- Java 21+ (for Kotlin LSP)
+- Java 11+ (only for the Groovy language server. kotlin-lsp ships its own)
 - [scrcpy](https://github.com/Genymobile/scrcpy) (optional, for device mirroring)
-- [`android` CLI](https://developer.android.com/tools/agents/android-cli) (optional; unlocks `:DroidScreenshot`, `:DroidDocs`, and faster emulator/deploy paths via `prefer_for`)
+- [`android` CLI](https://developer.android.com/tools/agents/android-cli) (optional, used by default when installed; adds `:DroidScreenshot`, `:DroidLayout`, `:DroidDocs`, `:DroidCreate` and `:DroidSdk`, and handles emulators and install-and-launch)
+- Android Studio Quail 2+ (optional, running with the project open; adds `:DroidLint`, `:DroidDeclaration`, `:DroidUsages` and `:DroidVersions`)
 
 ## SDK Environment Setup
 
@@ -56,7 +57,7 @@ Run `:checkhealth droid` when a command does not work. It reports on Neovim, the
 
 droid-nvim is dependency-free. Two optional plugins improve the experience:
 
-- **`mason-org/mason.nvim`** — recommended, so droid can auto-install the Kotlin
+- **`mason-org/mason.nvim`** — recommended, so droid can offer to install the Kotlin
   and Groovy language servers. Without it, put the servers on your `$PATH`
   or set `$KOTLIN_LSP_DIR`.
 - **`nvim-treesitter/nvim-treesitter`** — optional; richer syntax highlighting and
@@ -103,6 +104,7 @@ require("droid").setup({
     lsp = {
         enabled = true,                    -- Master toggle for all LSPs
         jre_path = nil,                    -- Shared JRE path (auto-detected)
+        folding = true,                    -- fold by the server's foldingRange
 
         -- Kotlin LSP (kotlin-lsp)
         kotlin = {
@@ -110,6 +112,8 @@ require("droid").setup({
             jdk_for_symbol_resolution = nil,
             jvm_args = {},                 -- ignored by kotlin-lsp (uses bundled launcher)
             root_markers = nil,
+            import_progress = "progress",  -- "progress" (LSP progress) or "off"
+            auto_reload = true,            -- reload the workspace when a build file is saved
             suppress_diagnostics = {},     -- e.g. { "PackageDirectoryMismatch" }
             -- Hide a code only on declarations carrying one of the annotations
             suppress_when_annotated = { FunctionName = { "Composable" } },
@@ -138,16 +142,23 @@ require("droid").setup({
     },
     logcat = {
         mode = "horizontal",               -- "horizontal" | "vertical" | "float"
-        height = 15,
+        height = 15,                       -- for "horizontal"
+        width = 80,                        -- for "vertical"
+        float_width = 120,                 -- for "float"
+        float_height = 30,
+        max_lines = 5000,                  -- keep this many lines; 0 keeps all
         filters = {
-            package = "mine",              -- "mine" (auto-detect) or specific package
+            package = "mine",              -- "mine" (auto-detect), a package, or "none"
             log_level = "v",               -- v, d, i, w, e, f
+            tag = nil,                     -- show only this tag
             grep_pattern = nil,            -- keep only lines containing this text
         },
     },
     android = {
         android_home = nil,                -- override ANDROID_HOME env var
         android_avd_home = nil,            -- override ANDROID_AVD_HOME env var
+        auto_select_single_target = true,  -- use the only running device without asking
+        logcat_startup_delay_ms = 2000,    -- wait after launch before opening logcat
     },
     -- android-cli backend. "auto" uses the `android` binary if on PATH,
     -- true forces it (warns when missing), false disables it entirely.
@@ -161,9 +172,9 @@ require("droid").setup({
 
 droid.nvim provides complete LSP support for Android development:
 
-| Language | LSP Server | Auto-Install | Min Java |
-| -------- | ---------- | ------------ | -------- |
-| Kotlin   | kotlin-lsp | Yes (Mason)  | 21+      |
+| Language | LSP Server | Install offered | Java |
+| -------- | ---------- | --------------- | ---- |
+| Kotlin   | kotlin-lsp | Yes (Mason)  | Bundled with the server |
 | Groovy   | groovy-language-server | Yes (Mason) | 11+ |
 
 Each LSP starts lazily when you first open a file of that type. If it is not installed, droid.nvim offers to install it via Mason, once per session, and starts it when the install finishes.
@@ -474,6 +485,11 @@ vim.keymap.set("n", "<leader>ao", ":DroidImports<CR>")
 vim.keymap.set("n", "<leader>af", ":DroidFormat<CR>")
 vim.keymap.set("n", "gs", ":DroidWorkspaceSymbols<CR>")
 vim.keymap.set("n", "gr", ":DroidReferences<CR>")
+
+-- Android Studio (needs Studio running with the project open)
+vim.keymap.set("n", "<leader>aL", ":DroidLint<CR>")
+vim.keymap.set("n", "<leader>ad", ":DroidDeclaration<CR>")
+vim.keymap.set("n", "<leader>au", ":DroidUsages<CR>")
 ```
 
 ## Known Limitations
@@ -502,7 +518,7 @@ The LSP successfully detects the Gradle project structure but does not build a c
 - Use `:DroidBuild` to catch compilation errors
 - Use Telescope or grep for finding symbol definitions: `:Telescope live_grep` or `:Telescope grep_string`
 - Use `:DroidReferences` for same-file references (opens quickfix list)
-- Consider using Android Studio for complex cross-file navigation tasks
+- With Android Studio running and the project open, use `:DroidDeclaration` and `:DroidUsages`. They ask Studio's index, which reaches across files and modules
 
 **Note:** This limitation is specific to Kotlin LSP with Android Gradle projects. Pure JVM Kotlin projects may have better support. The JetBrains Kotlin LSP README states: "currently, only JVM-only Kotlin Gradle projects are supported out-of-the box."
 
