@@ -180,6 +180,13 @@ vim.fn.writefile({
     '  else echo "Error: no system image"; fi ;;',
     '"create --list") printf "Template name   Template description   Tags\\nempty-activity (default)   Empty Activity   compose\\n\\nA new version of Android CLI is available (9.9).\\n" ;;',
     '"create --name="*) echo "$*" > ' .. cli_args .. " ;;",
+    '"sdk list"*) printf "Installed packages:\\n  platform-tools   37.0.1   Android SDK Platform-Tools\\n"; [ -f '
+        .. cli_dir
+        .. '/pkg ] && printf "  platforms/android-34   3.0.0   Android SDK Platform 34\\n"',
+    '  case "$*" in *--all*) printf "Available packages:\\n  platforms/android-34   3.0.0   Android SDK Platform 34\\n  ndk/30   30.0   NDK\\n" ;; esac ;;',
+    -- Like the real CLI, install exits 0 whether or not it installed anything.
+    '"sdk install "*) echo "$*" > ' .. cli_args .. '; [ -n "$FAKE_SDK_OK" ] && touch ' .. cli_dir .. "/pkg ;;",
+    '"sdk remove "*) echo "$*" > ' .. cli_args .. "; rm -f " .. cli_dir .. "/pkg ;;",
     '"emulator remove "*)',
     '  if [ -n "$FAKE_REMOVE_OK" ]; then grep -vx "$3" '
         .. cli_avds
@@ -441,4 +448,79 @@ check(":DroidCreate asks for name, id and folder, then runs android create", fun
     )
     assert(ran == expected, ran)
     assert(notes[1] == "Project created in " .. dir, vim.inspect(notes))
+end)
+
+local sdk = require "droid.sdk"
+
+-- Output captured from android-cli 1.0.16486076.
+check("SDK package lists parse, including pending updates", function()
+    local packages = sdk._parse_packages(table.concat({
+        "Installed packages:",
+        "  emulator                                  37.1.11         ->        37.2.12  Android Emulator                                 ",
+        "  platforms/android-36                      2.0.0                              Android SDK Platform 36                          ",
+        "Available packages:",
+        "  add-ons/addon-google_apis-google-10       2.0.0                              Google APIs         ",
+        "",
+        "A new version of Android CLI is available (1.0.16500706).",
+    }, "\n"))
+    assert(
+        vim.deep_equal(packages.installed, {
+            { path = "emulator", version = "37.1.11", update = "37.2.12", description = "Android Emulator" },
+            { path = "platforms/android-36", version = "2.0.0", description = "Android SDK Platform 36" },
+        }),
+        vim.inspect(packages.installed)
+    )
+    assert(#packages.available == 1 and packages.available[1].path == "add-ons/addon-google_apis-google-10")
+end)
+
+local function sdk_run(args, ok)
+    vim.env.FAKE_SDK_OK = ok and "1" or nil
+    notes, selects = {}, {}
+    vim.fn.delete(cli_args)
+    sdk.run(args)
+    vim.wait(5000, function()
+        return #notes > 0 and notes[#notes]:find("installed: ", 1, true) ~= nil
+    end)
+    return notes[#notes] or ""
+end
+
+check(":DroidSdk install picks from the available packages and confirms the install", function()
+    vim.fn.delete(cli_dir .. "/pkg")
+    local msg = sdk_run({ "install" }, true)
+    assert(selects[1] and #selects[1].items == 2, vim.inspect(selects))
+    assert(vim.fn.readfile(cli_args)[1] == "sdk install platforms/android-34", vim.inspect(vim.fn.readfile(cli_args)))
+    assert(msg == "SDK package installed: platforms/android-34", msg)
+end)
+
+check(":DroidSdk install reports a package the CLI exits 0 for but did not install", function()
+    vim.fn.delete(cli_dir .. "/pkg")
+    local msg = sdk_run({ "install", "platforms/android-34" }, false)
+    assert(msg:find("SDK package not installed: platforms/android-34", 1, true), msg)
+end)
+
+check(":DroidSdk remove picks an installed package and asks before removing", function()
+    vim.fn.writefile({}, cli_dir .. "/pkg")
+    answers = { ["Select SDK package to remove:"] = false }
+    notes, selects = {}, {}
+    sdk.run { "remove" }
+    vim.wait(3000, function()
+        return #selects > 0
+    end)
+    assert(#selects[1].items == 2, vim.inspect(selects))
+    -- Pick the second package, then decline: nothing is removed.
+    answers = {}
+    local real = vim.ui.select
+    vim.ui.select = function(items, opts, on_choice)
+        table.insert(selects, { prompt = opts.prompt, items = vim.list_slice(items) })
+        on_choice(opts.prompt == "Select SDK package to remove:" and items[2] or "No")
+    end
+    selects = {}
+    sdk.run { "remove" }
+    vim.wait(3000, function()
+        return #selects >= 2
+    end)
+    vim.wait(300)
+    vim.ui.select = real
+    assert(selects[2].prompt == "Remove SDK package platforms/android-34?", vim.inspect(selects[2]))
+    assert(vim.uv.fs_stat(cli_dir .. "/pkg"), "the package was removed after answering No")
 end)
