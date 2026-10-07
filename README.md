@@ -37,6 +37,12 @@ setx ANDROID_AVD_HOME "%USERPROFILE%\.android\avd"
 setx PATH "%ANDROID_HOME%\emulator;%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\cmdline-tools\latest\bin;%PATH%"
 ```
 
+droid finds the SDK from `android.android_home` in its config, then `vim.g.android_sdk`, then `$ANDROID_SDK_ROOT` or `$ANDROID_HOME`, then the usual install locations. It passes that SDK to android-cli, and to Gradle when the environment sets no `ANDROID_HOME`, so they all work on the same one.
+
+### Troubleshooting
+
+Run `:checkhealth droid` when a command does not work. It reports on Neovim, the project (Gradle wrapper, SDK location for Gradle, applicationId), android-cli, the SDK tools, running devices and the language servers, with advice for each problem it finds.
+
 ## Installation
 
 ```lua
