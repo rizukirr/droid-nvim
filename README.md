@@ -380,6 +380,10 @@ These commands require the [`android` CLI](https://developer.android.com/tools/a
 | `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
 | `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
 | `:DroidCreate` | Create a new Android project from a template: asks for the app name, application ID and folder, then offers to switch Neovim to it |
+| `:DroidSdk` | List installed SDK packages, with available updates, in the droid panel |
+| `:DroidSdk install [package]` | Install an SDK package, e.g. `platforms/android-34`. Without a package, pick from everything available |
+| `:DroidSdk update [package]` | Update one package, or all of them |
+| `:DroidSdk remove [package]` | Remove an SDK package. Without a package, pick one and confirm |
 
 When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`.
 

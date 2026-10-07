@@ -226,6 +226,23 @@ function M.setup_commands()
         require("droid.create").create()
     end, { desc = "Create a new Android project from an android-cli template" })
 
+    -- :DroidSdk [list|install|update|remove] [args...]
+    vim.api.nvim_create_user_command("DroidSdk", function(opts)
+        require("droid.sdk").run(opts.fargs)
+    end, {
+        nargs = "*",
+        desc = "List, install, update or remove Android SDK packages",
+        complete = function(arg_lead, line)
+            -- Only the action completes: the first word after the command.
+            if #vim.split(vim.trim(line), "%s+") > (arg_lead == "" and 1 or 2) then
+                return {}
+            end
+            return vim.tbl_filter(function(action)
+                return action:find(arg_lead, 1, true) == 1
+            end, require("droid.sdk").ACTIONS)
+        end,
+    })
+
     -- :DroidDocs <query>   search Android Knowledge Base, fetch picked result
     vim.api.nvim_create_user_command("DroidDocs", function(opts)
         local cli = require "droid.backends.android_cli"
