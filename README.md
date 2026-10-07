@@ -379,6 +379,7 @@ These commands require the [`android` CLI](https://developer.android.com/tools/a
 | `:DroidScreenshot [path]` | Capture device screen; opens the PNG with the OS default viewer |
 | `:DroidScreenshot! [path]` | Capture with `--annotate` (labels UI elements `#1`, `#2`, …) |
 | `:DroidDocs <query>` | Search the Android Knowledge Base; pick a result to open it in a read-only markdown buffer |
+| `:DroidCreate` | Create a new Android project from a template: asks for the app name, application ID and folder, then offers to switch Neovim to it |
 
 When `android_cli` is active (default `"auto"` + `android` on PATH), the emulator commands (`:DroidEmulator`, `:DroidEmulatorStop`) route through `android emulator …`, and `:DroidRun` uses `android run --apks=…` (install + launch fused into a single call) instead of `gradle install<Variant>` + `am start`.
 

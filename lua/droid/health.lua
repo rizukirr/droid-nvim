@@ -148,7 +148,7 @@ local function check_android_cli()
         h.info(("%-10s -> %s"):format(cap, note))
     end
 
-    h.info "CLI-only commands available: :DroidScreenshot, :DroidDocs"
+    h.info "CLI-only commands available: :DroidScreenshot, :DroidDocs, :DroidCreate"
 
     -- :DroidLint, :DroidDeclaration, :DroidUsages, :DroidVersions and
     -- :DroidStudioOpen need Studio running with the project open.
