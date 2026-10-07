@@ -8,6 +8,14 @@ local jre = require "droid.lsp.shared.jre"
 
 local M = {}
 
+--- Where to look for the server. Also read by `:checkhealth droid`.
+M.PACKAGE = {
+    mason_name = "groovy-language-server",
+    env_var = "GROOVY_LSP_DIR",
+    binaries = { "groovy-language-server" },
+    display_name = "Groovy LSP",
+}
+
 local initialised = false
 
 ---------------------------------------------------------------------------
@@ -18,12 +26,7 @@ local initialised = false
 --- Detection order: Mason, GROOVY_LSP_DIR, system PATH, then an install offer
 ---@return { type: string, path: string }|nil
 local function find_groovy_lsp()
-    return install.find_or_install({
-        mason_name = "groovy-language-server",
-        env_var = "GROOVY_LSP_DIR",
-        binaries = { "groovy-language-server" },
-        display_name = "Groovy LSP",
-    }, function()
+    return install.find_or_install(M.PACKAGE, function()
         M.start(config.get())
     end)
 end

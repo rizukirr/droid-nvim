@@ -169,6 +169,8 @@ local cli_avds = cli_dir .. "/avds"
 vim.fn.writefile({}, cli_avds)
 vim.fn.writefile({
     "#!/bin/sh",
+    -- droid passes the SDK it detected. Record it, then read the command.
+    'case "$1" in --sdk=*) echo "$1" > ' .. cli_dir .. "/sdk; shift ;; esac",
     'case "$*" in',
     "-V) echo 1.0.1 ;;",
     '"emulator list") cat ' .. cli_avds .. " ;;",
@@ -300,4 +302,41 @@ check("with no emulators the picker offers create but not delete", function()
     end)
     answers = {}
     assert(vim.deep_equal(selects[1].items, { "+ Create New Emulator" }), vim.inspect(selects[1]))
+end)
+
+check("android-cli gets the SDK droid detected", function()
+    local sdk = vim.fn.tempname()
+    vim.fn.mkdir(sdk, "p")
+    local android = require "droid.android"
+    android._cached_sdk_path = nil
+    config.get().android.android_home = sdk
+    local avds
+    cli.list_avds(function(list)
+        avds = list
+    end)
+    vim.wait(3000, function()
+        return avds ~= nil
+    end)
+    config.get().android.android_home = nil
+    android._cached_sdk_path = nil
+    assert(vim.fn.readfile(cli_dir .. "/sdk")[1] == "--sdk=" .. sdk, vim.inspect(vim.fn.readfile(cli_dir .. "/sdk")))
+end)
+
+check("Gradle gets ANDROID_HOME from droid only when the environment has none", function()
+    local gradle = require "droid.gradle"
+    local android = require "droid.android"
+    local home, root = vim.env.ANDROID_HOME, vim.env.ANDROID_SDK_ROOT
+    local sdk = vim.fn.tempname()
+    vim.fn.mkdir(sdk, "p")
+    config.get().android.android_home = sdk
+    android._cached_sdk_path = nil
+
+    vim.env.ANDROID_HOME, vim.env.ANDROID_SDK_ROOT = nil, nil
+    assert(vim.deep_equal(gradle.sdk_env(), { ANDROID_HOME = sdk }), vim.inspect(gradle.sdk_env()))
+    vim.env.ANDROID_HOME = "/somewhere"
+    assert(gradle.sdk_env() == nil, "droid overrode the environment's ANDROID_HOME")
+
+    vim.env.ANDROID_HOME, vim.env.ANDROID_SDK_ROOT = home, root
+    config.get().android.android_home = nil
+    android._cached_sdk_path = nil
 end)

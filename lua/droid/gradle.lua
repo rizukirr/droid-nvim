@@ -67,6 +67,18 @@ function M.find_gradlew()
     return { gradlew = gradlew, cwd = vim.fs.dirname(path) }
 end
 
+--- ANDROID_HOME for Gradle when the environment sets no SDK location, so a
+--- build does not stop at "SDK location not found" in a project without a
+--- local.properties. Nil when the environment already has one.
+---@return table<string, string>|nil
+function M.sdk_env()
+    if vim.env.ANDROID_HOME or vim.env.ANDROID_SDK_ROOT then
+        return nil
+    end
+    local sdk = require("droid.android").detect_android_sdk(true)
+    return sdk and { ANDROID_HOME = sdk } or nil
+end
+
 ---@param g { gradlew: string|string[] }
 ---@param args string|string[]
 ---@return string[]
@@ -81,7 +93,7 @@ end
 local function run_gradle_task(g, args, callback)
     -- List form, so paths with spaces reach the PTY verbatim instead of going
     -- through a shell (notably the gradlew.bat path on Windows cmd.exe).
-    buffer.run_task(argv(g, args), { cwd = g.cwd }, callback)
+    buffer.run_task(argv(g, args), { cwd = g.cwd, env = M.sdk_env() }, callback)
 end
 
 --- Run one Gradle invocation, notify how it went, then call

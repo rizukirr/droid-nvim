@@ -246,7 +246,11 @@ function M.build_emulator_command(emulator, args)
     return full_args
 end
 
-function M.detect_android_sdk()
+--- The Android SDK directory, from config, `vim.g.android_sdk`, the
+--- environment, or the usual install locations.
+---@param quiet? boolean do not notify when none is found
+---@return string|nil
+function M.detect_android_sdk(quiet)
     if M._cached_sdk_path then
         return M._cached_sdk_path
     end
@@ -291,7 +295,9 @@ function M.detect_android_sdk()
         end
     end
 
-    vim.notify("Android SDK not found. Set vim.g.android_sdk or ANDROID_HOME.", vim.log.levels.ERROR)
+    if not quiet then
+        vim.notify("Android SDK not found. Set vim.g.android_sdk or ANDROID_HOME.", vim.log.levels.ERROR)
+    end
     return nil
 end
 

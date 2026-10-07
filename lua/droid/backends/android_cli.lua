@@ -138,6 +138,20 @@ function M._parse_id_list(stdout)
     return out
 end
 
+--- The argv for `android <args>`, or nil when android-cli is unavailable.
+--- The SDK droid detected goes along as `--sdk`, so the CLI and droid's
+--- fallback tools always work on the same SDK.
+---@param args string[]
+---@return string[]|nil
+function M.argv(args)
+    local exe = resolve_binary()
+    if not exe then
+        return nil
+    end
+    local sdk = require("droid.android").detect_android_sdk(true)
+    return vim.list_extend(sdk and { exe, "--sdk=" .. sdk } or { exe }, args)
+end
+
 --- Run `android <args>` and pass the finished process to `on_ok`. On a nonzero
 --- exit the failure is notified and `on_fail` gets the process, or nil when
 --- the binary is unavailable. Both run on the main loop.
@@ -146,12 +160,12 @@ end
 ---@param on_ok fun(result: vim.SystemCompleted)
 ---@param on_fail fun(result: vim.SystemCompleted|nil)
 local function run(args, action, on_ok, on_fail)
-    local exe = resolve_binary()
-    if not exe then
+    local cmd = M.argv(args)
+    if not cmd then
         on_fail(nil)
         return
     end
-    vim.system(vim.list_extend({ exe }, args), { text = true }, function(result)
+    vim.system(cmd, { text = true }, function(result)
         vim.schedule(function()
             if result.code ~= 0 then
                 notify_failure(action, result)
@@ -161,14 +175,6 @@ local function run(args, action, on_ok, on_fail)
             on_ok(result)
         end)
     end)
-end
-
---- The argv for `android <args>`, or nil when android-cli is unavailable.
----@param args string[]
----@return string[]|nil
-function M.argv(args)
-    local exe = resolve_binary()
-    return exe and vim.list_extend({ exe }, args) or nil
 end
 
 local function stdout_of(result)

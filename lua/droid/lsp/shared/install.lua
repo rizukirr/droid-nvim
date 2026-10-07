@@ -116,12 +116,11 @@ function M.install_via_mason(opts, on_installed)
     end)
 end
 
---- Find a package, offering to install it when it is missing.
---- Detection order: Mason, then the environment variable, then PATH.
----@param opts { mason_name: string, env_var: string, binaries: string[], display_name: string }
----@param on_installed? fun() runs after an install this call offered
----@return { type: "mason"|"env"|"binary", path: string }|nil nil while missing
-function M.find_or_install(opts, on_installed)
+--- Find a package. Detection order: Mason, then the environment variable,
+--- then PATH.
+---@param opts { mason_name: string, env_var: string, binaries: string[] }
+---@return { type: "mason"|"env"|"binary", path: string }|nil
+function M.find(opts)
     if M.is_mason_installed(opts.mason_name) then
         return { type = "mason", path = M.mason_path(opts.mason_name) }
     end
@@ -135,9 +134,19 @@ function M.find_or_install(opts, on_installed)
     if bin then
         return { type = "binary", path = bin }
     end
-
-    M.install_via_mason(opts, on_installed)
     return nil
+end
+
+--- Find a package, offering to install it when it is missing.
+---@param opts { mason_name: string, env_var: string, binaries: string[], display_name: string }
+---@param on_installed? fun() runs after an install this call offered
+---@return { type: "mason"|"env"|"binary", path: string }|nil nil while missing
+function M.find_or_install(opts, on_installed)
+    local found = M.find(opts)
+    if not found then
+        M.install_via_mason(opts, on_installed)
+    end
+    return found
 end
 
 return M

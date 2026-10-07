@@ -7,6 +7,14 @@ local sync = require "droid.lsp.kotlin.sync"
 
 local M = {}
 
+--- Where to look for the server. Also read by `:checkhealth droid`.
+M.PACKAGE = {
+    mason_name = "kotlin-lsp",
+    env_var = "KOTLIN_LSP_DIR",
+    binaries = { "kotlin-lsp", "kotlin-language-server" },
+    display_name = "Kotlin LSP",
+}
+
 local initialised = false
 
 ---------------------------------------------------------------------------
@@ -17,12 +25,7 @@ local initialised = false
 --- Detection order: Mason, KOTLIN_LSP_DIR, system PATH, then an install offer
 ---@return { type: string, path: string }|nil
 local function find_kotlin_lsp()
-    return install.find_or_install({
-        mason_name = "kotlin-lsp",
-        env_var = "KOTLIN_LSP_DIR",
-        binaries = { "kotlin-lsp", "kotlin-language-server" },
-        display_name = "Kotlin LSP",
-    }, function()
+    return install.find_or_install(M.PACKAGE, function()
         M.start(config.get())
     end)
 end
