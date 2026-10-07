@@ -222,6 +222,10 @@ function M.setup_commands()
         studio.open()
     end, { desc = "Open this file in Android Studio" })
 
+    vim.api.nvim_create_user_command("DroidCreate", function()
+        require("droid.create").create()
+    end, { desc = "Create a new Android project from an android-cli template" })
+
     -- :DroidDocs <query>   search Android Knowledge Base, fetch picked result
     vim.api.nvim_create_user_command("DroidDocs", function(opts)
         local cli = require "droid.backends.android_cli"

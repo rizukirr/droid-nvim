@@ -178,6 +178,8 @@ vim.fn.writefile({
     '"emulator create "*) echo "$*" > ' .. cli_args .. "",
     '  if [ -n "$FAKE_CREATE_OK" ]; then echo "$3" >> ' .. cli_avds .. '; echo "Successfully created device"',
     '  else echo "Error: no system image"; fi ;;',
+    '"create --list") printf "Template name   Template description   Tags\\nempty-activity (default)   Empty Activity   compose\\n\\nA new version of Android CLI is available (9.9).\\n" ;;',
+    '"create --name="*) echo "$*" > ' .. cli_args .. " ;;",
     '"emulator remove "*)',
     '  if [ -n "$FAKE_REMOVE_OK" ]; then grep -vx "$3" '
         .. cli_avds
@@ -394,4 +396,49 @@ check("the CLI is pointed at the folder Studio registered in", function()
     assert(studio.registry_env() == nil, "the user's ANDROID_USER_HOME was overridden")
 
     vim.env.HOME, vim.env.XDG_CONFIG_HOME, vim.env.ANDROID_USER_HOME = home, xdg, user_home
+end)
+
+local create = require "droid.create"
+
+-- Output captured from android-cli 1.0.16486076.
+check("project templates parse, without the CLI's update notice", function()
+    local templates = create._parse_templates(table.concat({
+        "Template name                           Template description    Tags",
+        "empty-activity (default)                Empty Activity          compose,activity,agp-9",
+        "",
+        "A new version of Android CLI is available (1.0.16500706).",
+        "Please run 'android update' to install it.",
+    }, "\n"))
+    assert(
+        vim.deep_equal(templates, { { name = "empty-activity", description = "Empty Activity" } }),
+        vim.inspect(templates)
+    )
+end)
+
+check(":DroidCreate asks for name, id and folder, then runs android create", function()
+    local dir = vim.fn.tempname()
+    local inputs = {}
+    local real_input = vim.ui.input
+    vim.ui.input = function(opts, on_confirm)
+        table.insert(inputs, opts.prompt)
+        local answers_by_prompt = { ["App name: "] = "Test App", ["Create in: "] = dir }
+        on_confirm(answers_by_prompt[opts.prompt] or opts.default)
+    end
+    notes, selects = {}, {}
+    answers = { ["Switch Neovim to " .. dir .. "?"] = "Not now" }
+    vim.fn.delete(cli_args)
+    create.create()
+    vim.wait(5000, function()
+        return #notes > 0
+    end)
+    vim.wait(200)
+    vim.ui.input = real_input
+    answers = {}
+    assert(vim.deep_equal(inputs, { "App name: ", "Application ID: ", "Create in: " }), vim.inspect(inputs))
+    local ran = vim.fn.readfile(cli_args)[1]
+    local expected = ("create --name=Test App --application-id=com.example.testapp --output=%s empty-activity"):format(
+        dir
+    )
+    assert(ran == expected, ran)
+    assert(notes[1] == "Project created in " .. dir, vim.inspect(notes))
 end)
