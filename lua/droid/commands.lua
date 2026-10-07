@@ -176,6 +176,56 @@ function M.setup_commands()
         android.mirror()
     end, {})
 
+    -- :DroidLayout   UI tree of the screen a device is showing, as JSON (android-cli)
+    -- :DroidLayout!  also non-interactive and hidden elements
+    vim.api.nvim_create_user_command("DroidLayout", function(opts)
+        local cli = require "droid.backends.android_cli"
+        if not cli.is_available() then
+            vim.notify(
+                "DroidLayout requires android-cli (`android` not on PATH). See :checkhealth droid.",
+                vim.log.levels.ERROR
+            )
+            return
+        end
+        local adb = android.get_adb_path()
+        if not adb then
+            return
+        end
+        android.pick_running_device(adb, "Select device to inspect:", function(device)
+            if not device then
+                return
+            end
+            local output = vim.fn.tempname() .. ".json"
+            cli.layout({ device = device, full = opts.bang, output = output }, function(ok)
+                if not ok then
+                    return
+                end
+                local lines = vim.fn.readfile(output)
+                vim.fn.delete(output)
+
+                -- One buffer per device, refreshed when the command runs again.
+                local name = "droid-layout://" .. device
+                local buf
+                for _, b in ipairs(vim.api.nvim_list_bufs()) do
+                    if vim.api.nvim_buf_get_name(b) == name then
+                        buf = b
+                    end
+                end
+                if not buf then
+                    buf = vim.api.nvim_create_buf(false, true)
+                    vim.api.nvim_buf_set_name(buf, name)
+                    vim.bo[buf].filetype = "json"
+                end
+                vim.bo[buf].modifiable = true
+                vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+                vim.bo[buf].modifiable = false
+                if vim.fn.bufwinid(buf) == -1 then
+                    vim.cmd.sbuffer(buf)
+                end
+            end)
+        end)
+    end, { bang = true, desc = "Show the UI tree of the screen a device is showing" })
+
     -- :DroidScreenshot [path]   capture device screen (android-cli)
     -- :DroidScreenshot! [path]  capture with --annotate (labels UI elements)
     vim.api.nvim_create_user_command("DroidScreenshot", function(opts)

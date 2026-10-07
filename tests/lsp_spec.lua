@@ -187,6 +187,7 @@ vim.fn.writefile({
     -- Like the real CLI, install exits 0 whether or not it installed anything.
     '"sdk install "*) echo "$*" > ' .. cli_args .. '; [ -n "$FAKE_SDK_OK" ] && touch ' .. cli_dir .. "/pkg ;;",
     '"sdk remove "*) echo "$*" > ' .. cli_args .. "; rm -f " .. cli_dir .. "/pkg ;;",
+    '"layout "*) echo "$*" > ' .. cli_args .. " ;;",
     '"emulator remove "*)',
     '  if [ -n "$FAKE_REMOVE_OK" ]; then grep -vx "$3" '
         .. cli_avds
@@ -523,4 +524,17 @@ check(":DroidSdk remove picks an installed package and asks before removing", fu
     vim.ui.select = real
     assert(selects[2].prompt == "Remove SDK package platforms/android-34?", vim.inspect(selects[2]))
     assert(vim.uv.fs_stat(cli_dir .. "/pkg"), "the package was removed after answering No")
+end)
+
+check("layout asks the CLI for pretty JSON from one device, full on request", function()
+    vim.fn.delete(cli_args)
+    local done
+    cli.layout({ output = "/tmp/out.json", device = "emulator-5554", full = true }, function(ok)
+        done = ok
+    end)
+    vim.wait(3000, function()
+        return done ~= nil
+    end)
+    local ran = vim.fn.readfile(cli_args)[1]
+    assert(done == true and ran == "layout --pretty --output=/tmp/out.json --device=emulator-5554 --full", ran)
 end)
