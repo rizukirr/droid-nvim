@@ -435,3 +435,54 @@ check(":DroidRun with nothing running points to :DroidEmulator and frees the com
     end)
     assert(not notified "already running", "the command guard was left set")
 end)
+
+local stacktrace = require "droid.stacktrace"
+
+check("stack frames resolve to project files by package and file name", function()
+    local root = vim.fn.tempname()
+    local function write(rel, lines)
+        local path = root .. "/" .. rel
+        vim.fn.mkdir(vim.fs.dirname(path), "p")
+        vim.fn.writefile(lines, path)
+        return path
+    end
+    local by_dir = write("app/src/main/java/com/app/ui/HomeScreen.kt", { "package com.app.ui" })
+    write("app/build/generated/com/app/ui/HomeScreen.kt", { "package com.app.ui" })
+    local by_pkg = write("core/src/main/kotlin/Repo.kt", { "// header", "package com.app.data" })
+    write("other/src/main/kotlin/Repo.kt", { "package com.other" })
+
+    local f =
+        stacktrace.parse "11-14 10:00:00.123  4242  4242 E AndroidRuntime: \tat com.app.ui.HomeScreen$onClick$1.invoke(HomeScreen.kt:42)"
+    assert(f and f.class == "com.app.ui.HomeScreen$onClick$1" and f.method == "invoke" and f.line == 42, vim.inspect(f))
+    assert(stacktrace.resolve(f, root) == by_dir)
+    assert(stacktrace.resolve(stacktrace.parse "at com.app.data.Repo.load(Repo.kt:7)", root) == by_pkg)
+    assert(stacktrace.resolve(stacktrace.parse "at android.os.Looper.loop(Looper.java:288)", root) == nil)
+    assert(stacktrace.parse "at android.os.Looper.loop(Native Method)" == nil)
+    vim.fn.delete(root, "rf")
+end)
+
+check("the trace around the cursor, or the last one, goes to quickfix in order", function()
+    local lines = {
+        "I MyApp: started",
+        "E AndroidRuntime: FATAL EXCEPTION: main",
+        "E AndroidRuntime: java.lang.IllegalStateException: boom",
+        "E AndroidRuntime: \tat com.app.Foo.bar(Foo.kt:3)",
+        "E AndroidRuntime: Caused by: java.lang.NullPointerException",
+        "E AndroidRuntime: \tat android.os.Looper.loop(Looper.java:288)",
+        "E AndroidRuntime: \t... 5 more",
+        "I MyApp: after",
+    }
+    local first, last = stacktrace.trace_bounds(lines, 1)
+    assert(first == 2 and last == 7, first .. "-" .. last)
+    first, last = stacktrace.trace_bounds(lines, 4)
+    assert(first == 2 and last == 7)
+
+    local root = vim.fn.tempname()
+    vim.fn.mkdir(root .. "/src/com/app", "p")
+    vim.fn.writefile({ "package com.app" }, root .. "/src/com/app/Foo.kt")
+    local items, resolved = stacktrace.quickfix_items(vim.list_slice(lines, first, last), root)
+    assert(resolved == 1 and #items == 6, vim.inspect(items))
+    assert(items[3].lnum == 3 and items[3].text == "at com.app.Foo.bar(Foo.kt:3)", vim.inspect(items[3]))
+    assert(items[1].valid == 0 and items[1].text == "FATAL EXCEPTION: main")
+    vim.fn.delete(root, "rf")
+end)

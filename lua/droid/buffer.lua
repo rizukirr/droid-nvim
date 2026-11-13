@@ -29,6 +29,12 @@ local function new_buffer(buffer_type)
         vim.bo[buf].filetype = "logcat"
         vim.bo[buf].modifiable = false
     end
+    -- gf on a stack frame opens the project source it points to.
+    vim.keymap.set("n", "gf", function()
+        if not require("droid.stacktrace").open_frame_under_cursor() then
+            vim.cmd "normal! gf"
+        end
+    end, { buffer = buf, desc = "Open the stack frame's source" })
     vim.api.nvim_create_autocmd("BufWipeout", {
         buffer = buf,
         once = true,
