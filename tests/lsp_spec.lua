@@ -564,3 +564,65 @@ check("jvm_args reach the launcher through IJ_JAVA_OPTIONS", function()
     assert(kotlin_lsp._launch_env({ jvm_args = { "-Xmx4g" } }).IJ_JAVA_OPTIONS == "-Dkeep=1 -Xmx4g")
     vim.env.IJ_JAVA_OPTIONS = nil
 end)
+
+local install = require "droid.lsp.shared.install"
+
+check("a set $KOTLIN_LSP_DIR wins over a Mason install", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local real = install.is_mason_installed
+    install.is_mason_installed = function()
+        return true
+    end
+    vim.env.DROID_TEST_LSP_DIR = dir
+    local pkg = { mason_name = "kotlin-lsp", env_var = "DROID_TEST_LSP_DIR", binaries = {} }
+    local found = install.find(pkg)
+    assert(found.type == "env" and found.path == dir, vim.inspect(found))
+    vim.env.DROID_TEST_LSP_DIR = nil
+    assert(install.find(pkg).type == "mason")
+    install.is_mason_installed = real
+end)
+
+check("stop_and_wait runs its callback only after the server process exits", function()
+    -- A fake server: answers initialize, takes 600ms to exit after shutdown.
+    local script = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({
+        "local function read()",
+        "  local len",
+        "  while true do",
+        "    local l = io.read('*l')",
+        "    if not l then os.exit(0) end",
+        "    l = l:gsub('\\r$', '')",
+        "    if l == '' then break end",
+        "    len = tonumber(l:match('Content%-Length: (%d+)')) or len",
+        "  end",
+        "  return vim.json.decode(io.read(len))",
+        "end",
+        "local function send(t)",
+        "  local s = vim.json.encode(t)",
+        "  io.write('Content-Length: ' .. #s .. '\\r\\n\\r\\n' .. s)",
+        "  io.flush()",
+        "end",
+        "while true do",
+        "  local m = read()",
+        "  if m.method == 'initialize' then send({ jsonrpc = '2.0', id = m.id, result = { capabilities = {} } }) end",
+        "  if m.method == 'shutdown' then send({ jsonrpc = '2.0', id = m.id, result = vim.NIL }) end",
+        "  if m.method == 'exit' then vim.uv.sleep(600) os.exit(0) end",
+        "end",
+    }, script)
+    local id = vim.lsp.start({ name = "droid_fake", cmd = { vim.v.progpath, "-l", script } }, { attach = false })
+    assert(vim.wait(5000, function()
+        local c = vim.lsp.get_client_by_id(id)
+        return c and c.initialized
+    end))
+    local lsp_client = require "droid.lsp.client"
+    local done_at, started = nil, vim.uv.now()
+    lsp_client.stop_and_wait({ vim.lsp.get_client_by_id(id) }, function()
+        done_at = vim.uv.now()
+    end)
+    assert(vim.wait(10000, function()
+        return done_at ~= nil
+    end))
+    assert(vim.lsp.get_client_by_id(id) == nil)
+    assert(done_at - started >= 500, "returned before the process exited: " .. (done_at - started) .. "ms")
+end)

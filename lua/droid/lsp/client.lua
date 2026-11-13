@@ -59,6 +59,46 @@ function M.groovy(filter)
     return clients[1]
 end
 
+--- How long `stop_and_wait` lets servers shut down before killing them, and
+--- how long it then waits for the kill.
+M.stop_timeout_ms = 30000
+M.kill_timeout_ms = 5000
+
+--- Stop clients and call `on_done` once their processes have exited.
+--- Neovim drops a client only after its process exits, so polling for the
+--- client id tells when the server let go of its workspace directory. A new
+--- kotlin-lsp on the same directory refuses to start before that.
+---@param clients vim.lsp.Client[]
+---@param on_done fun()
+function M.stop_and_wait(clients, on_done)
+    local ids = {}
+    for _, c in ipairs(clients) do
+        ids[#ids + 1] = c.id
+        c:stop()
+    end
+
+    local start = vim.uv.now()
+    local killed = false
+    local function poll()
+        local alive = vim.tbl_filter(function(id)
+            return vim.lsp.get_client_by_id(id) ~= nil
+        end, ids)
+        local elapsed = vim.uv.now() - start
+        if #alive == 0 or elapsed >= M.stop_timeout_ms + M.kill_timeout_ms then
+            on_done()
+            return
+        end
+        if not killed and elapsed >= M.stop_timeout_ms then
+            killed = true
+            for _, id in ipairs(alive) do
+                vim.lsp.get_client_by_id(id):stop(true)
+            end
+        end
+        vim.defer_fn(poll, 100)
+    end
+    poll()
+end
+
 --- Send workspace/executeCommand to a specific LSP by name
 ---@param lsp_name string e.g. "kotlin_ls", "groovy_ls"
 ---@param cmd_name string command name
