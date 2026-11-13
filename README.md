@@ -110,7 +110,7 @@ require("droid").setup({
         kotlin = {
             enabled = true,
             jdk_for_symbol_resolution = nil,
-            jvm_args = {},                 -- ignored by kotlin-lsp (uses bundled launcher)
+            jvm_args = {},                 -- extra server JVM options, e.g. { "-Xmx4g" }
             root_markers = nil,
             import_progress = "progress",  -- "progress" (LSP progress) or "off"
             auto_reload = true,            -- reload the workspace when a build file is saved
@@ -189,6 +189,22 @@ For each LSP, droid.nvim searches in this order:
 4. **Install via Mason** — If not found, asks whether to install it
 
 Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`. (kotlin-lsp is exempt — its native launcher ships a bundled JBR.)
+
+#### Server memory
+
+Large Android projects can run kotlin-lsp out of memory. `lsp.kotlin.jvm_args` passes extra JVM options to the server through `IJ_JAVA_OPTIONS`, added after any value already in your environment:
+
+```lua
+lsp = { kotlin = { jvm_args = { "-Xmx4g" } } }
+```
+
+#### Expired server builds
+
+kotlin-lsp builds stop working after a while. The server then exits at startup with code 7 and writes "This build of kotlin-server has expired" to the LSP log (`:LspLog`). Update it with `:MasonUpdate` followed by `:MasonInstall kotlin-lsp`. When Mason's registry has not caught up with the latest [release](https://github.com/Kotlin/kotlin-lsp/releases), name the version yourself:
+
+```vim
+:MasonInstall kotlin-lsp@kotlin-lsp/v271.2085.0
+```
 
 #### Disabling LSPs
 
@@ -271,6 +287,12 @@ For nvim-tree or neo-tree, [nvim-lsp-file-operations](https://github.com/antosha
 #### Decompilation
 
 Navigating to a class from a dependency (e.g., go-to-definition on a library symbol) automatically decompiles the `.class` file via `jar://` and `jrt://` protocol handlers.
+
+The Kotlin LSP attaches to the decompiled buffer, so hover, go-to-definition, document symbols and folding work inside library and SDK sources too. Right after an import the server may still be indexing the library and answer with nothing for a little while.
+
+#### Inspecting the imported project
+
+`:DroidExportWorkspace` asks kotlin-lsp to write its project model to `workspace.json` in the project root, then opens the file. It lists every module the server imported with its source and test roots, library jars, module dependencies and JDK. Reach for it when the server shows unresolved imports or misses a module although Gradle builds fine: the file shows whether the import or the code is at fault, and it makes a useful attachment for a kotlin-lsp bug report. Delete the file when you are done, or add it to `.gitignore`.
 
 #### Debugging (optional, requires nvim-dap)
 
@@ -456,7 +478,7 @@ These commands work in `.kt` and `.groovy` buffers with their respective LSP att
 | `:DroidLspRefresh` | Reload the Kotlin LSP workspace (re-import project model) |
 | `:DroidLspLog` | Open the Kotlin LSP project-sync log |
 | `:DroidKdoc` | Generate a KDoc stub for the Kotlin function under the cursor |
-| `:DroidExportWorkspace` | Export workspace config to JSON (Kotlin only) |
+| `:DroidExportWorkspace` | Write the Kotlin LSP's imported project model to `workspace.json` and open it |
 | `:DroidCleanWorkspace` | Stop all LSPs and clean cached workspaces |
 | `:DroidLspStop` | Stop all LSP servers |
 | `:DroidLspRestart` | Restart all LSP servers |
