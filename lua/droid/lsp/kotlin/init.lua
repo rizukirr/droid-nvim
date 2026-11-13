@@ -17,6 +17,12 @@ M.PACKAGE = {
 
 local initialised = false
 
+-- True while droid itself stops the client, so its exit is not a lost server.
+local stopping = false
+
+--- How long to wait before reconnecting to a shared server that went away.
+M.reconnect_delay_ms = 2000
+
 ---------------------------------------------------------------------------
 -- kotlin-lsp package resolution
 ---------------------------------------------------------------------------
@@ -70,6 +76,104 @@ local function find_launcher(server_root)
         end
     end
     return nil
+end
+
+---------------------------------------------------------------------------
+-- Shared server (lsp-router)
+---------------------------------------------------------------------------
+
+--- The router that ships beside the launcher since kotlin-lsp 271. It finds
+--- the server already serving the workspace, or starts one that outlives the
+--- editor and exits 10s after its last client leaves.
+---@param launcher string
+---@return string|nil
+local function find_router(launcher)
+    local dir = vim.fs.dirname(vim.uv.fs_realpath(launcher) or launcher)
+    for _, name in ipairs { "lsp-router", "lsp-router.exe" } do
+        local path = dir .. "/" .. name
+        if vim.fn.executable(path) == 1 then
+            return path
+        end
+    end
+    return nil
+end
+
+--- The command that starts or reaches the server.
+---@param launcher string
+---@param ws string server system path
+---@param kotlin_cfg table
+---@param router? string|false
+---@return string[]
+function M._server_cmd(launcher, ws, kotlin_cfg, router)
+    if router == nil then
+        router = find_router(launcher)
+    end
+    if router and kotlin_cfg.shared_server ~= false then
+        return { router, "--server-launcher", launcher, "--system-path", ws, "--" }
+    end
+    return { launcher, "--stdio", "--system-path", ws }
+end
+
+-- Clients that reach their server through the router.
+local routed_ids = {}
+
+---@param c vim.lsp.Client
+---@return boolean
+local function is_routed(c)
+    local exe = c.config.cmd and type(c.config.cmd) == "table" and c.config.cmd[1]
+    return type(exe) == "string" and vim.fs.basename(exe):match "^lsp%-router" ~= nil
+end
+
+--- Where a shared server publishes its port, pid and build, one line each.
+--- The router and the server name it after the workspace root.
+---@param root string
+---@return string
+function M._port_file(root)
+    return vim.fs.joinpath(vim.uv.os_tmpdir(), "intellij-lsp-servers", vim.fn.sha256(root):sub(1, 16) .. ".port")
+end
+
+---@param root string
+---@return integer|nil
+function M._shared_server_pid(root)
+    local file = M._port_file(root)
+    if vim.fn.filereadable(file) == 0 then
+        return nil
+    end
+    return tonumber(vim.fn.readfile(file)[2])
+end
+
+local function pid_alive(pid)
+    return vim.uv.kill(pid, 0) == 0
+end
+
+--- Call `on_done` once every pid has exited: SIGTERM first, SIGKILL after
+--- `lsp_client.stop_timeout_ms`.
+---@param pids integer[]
+---@param on_done fun()
+local function terminate_and_wait(pids, on_done)
+    for _, pid in ipairs(pids) do
+        if pid_alive(pid) then
+            vim.uv.kill(pid, "sigterm")
+        end
+    end
+    local start = vim.uv.now()
+    local killed = false
+    local function poll()
+        local alive = vim.tbl_filter(pid_alive, pids)
+        local elapsed = vim.uv.now() - start
+        if #alive == 0 or elapsed >= lsp_client.stop_timeout_ms + lsp_client.kill_timeout_ms then
+            on_done()
+            return
+        end
+        if not killed and elapsed >= lsp_client.stop_timeout_ms then
+            killed = true
+            for _, pid in ipairs(alive) do
+                vim.uv.kill(pid, "sigkill")
+            end
+        end
+        vim.defer_fn(poll, 100)
+    end
+    poll()
 end
 
 ---------------------------------------------------------------------------
@@ -273,10 +377,10 @@ function M.start(cfg)
             )
             return
         end
-        cmd = { launcher, "--stdio", "--system-path", ws }
+        cmd = M._server_cmd(launcher, ws, kotlin_cfg)
     else
         -- Using binary from PATH
-        cmd = { lsp_info.path, "--stdio", "--system-path", ws }
+        cmd = M._server_cmd(lsp_info.path, ws, kotlin_cfg)
     end
 
     local settings = make_settings(kotlin_cfg)
@@ -307,6 +411,26 @@ function M.start(cfg)
                 inlayHint = { dynamicRegistration = true },
             },
         },
+        -- A shared server can stop under this editor: another Neovim ran
+        -- :DroidLspRestart. Reconnect, which reaches the new server or starts one.
+        on_exit = function(_, _, client_id)
+            if stopping or not routed_ids[client_id] then
+                return
+            end
+            routed_ids[client_id] = nil
+            vim.defer_fn(function()
+                if stopping or #lsp_client.all { name = lsp_client.LSP_NAMES.kotlin } > 0 then
+                    return
+                end
+                initialised = false
+                M.start(config.get())
+            end, M.reconnect_delay_ms)
+        end,
+        on_init = function(c)
+            if is_routed(c) then
+                routed_ids[c.id] = true
+            end
+        end,
         handlers = {
             ["workspace/configuration"] = function(_, params, _)
                 return M._workspace_configuration(kotlin_cfg, params.items)
@@ -346,17 +470,51 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
---- Stop the server. `on_done` runs once its process has exited.
+--- Stop the client. `on_done` runs once its process has exited.
+---
+--- Through the router that ends only this editor's session, and the shared
+--- server exits on its own once no client is left. With `opts.server` the
+--- shared server stops too, for every editor using it, and `on_done` waits
+--- for its process: a new server cannot open the workspace before that.
 ---@param on_done? fun()
-function M.stop(on_done)
-    lsp_client.stop_and_wait(lsp_client.all { name = lsp_client.LSP_NAMES.kotlin }, on_done or function() end)
+---@param opts? { server?: boolean }
+function M.stop(on_done, opts)
+    local caller_done = on_done or function() end
+    stopping = true
+    on_done = function()
+        stopping = false
+        caller_done()
+    end
+    local clients = lsp_client.all { name = lsp_client.LSP_NAMES.kotlin }
+    for _, c in ipairs(clients) do
+        routed_ids[c.id] = nil
+    end
+    local pids = {}
+    if opts and opts.server then
+        for _, c in ipairs(clients) do
+            local pid = is_routed(c) and c.root_dir and M._shared_server_pid(c.root_dir)
+            if pid then
+                pids[#pids + 1] = pid
+                -- The polite way. kotlin-lsp 271 has no handler for it yet,
+                -- so the signal below does the work there.
+                c:request("intellij/stopServer", nil, function() end)
+            end
+        end
+    end
+    lsp_client.stop_and_wait(clients, function()
+        if #pids == 0 then
+            on_done()
+            return
+        end
+        terminate_and_wait(pids, on_done)
+    end)
 end
 
 function M.restart()
     M.stop(function()
         initialised = false
         M.start(config.get())
-    end)
+    end, { server = true })
 end
 
 --- Setup Kotlin LSP (called from main lsp/init.lua)

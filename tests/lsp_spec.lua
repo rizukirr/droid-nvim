@@ -626,3 +626,33 @@ check("stop_and_wait runs its callback only after the server process exits", fun
     assert(vim.lsp.get_client_by_id(id) == nil)
     assert(done_at - started >= 500, "returned before the process exited: " .. (done_at - started) .. "ms")
 end)
+
+check("kotlin-lsp starts through lsp-router unless shared_server is false", function()
+    local routed = kotlin_lsp._server_cmd("/s/bin/intellij-server", "/ws", {}, "/s/bin/lsp-router")
+    assert(
+        vim.deep_equal(
+            routed,
+            { "/s/bin/lsp-router", "--server-launcher", "/s/bin/intellij-server", "--system-path", "/ws", "--" }
+        ),
+        vim.inspect(routed)
+    )
+    local own = { "/s/bin/intellij-server", "--stdio", "--system-path", "/ws" }
+    assert(
+        vim.deep_equal(
+            kotlin_lsp._server_cmd("/s/bin/intellij-server", "/ws", { shared_server = false }, "/s/bin/lsp-router"),
+            own
+        )
+    )
+    assert(vim.deep_equal(kotlin_lsp._server_cmd("/s/bin/intellij-server", "/ws", {}, false), own))
+end)
+
+check("the shared server's pid comes from the router's port file", function()
+    local root = "/tmp/droid-test-root-" .. vim.fn.getpid()
+    local file = kotlin_lsp._port_file(root)
+    assert(vim.fs.basename(file) == vim.fn.sha256(root):sub(1, 16) .. ".port", file)
+    assert(kotlin_lsp._shared_server_pid(root) == nil)
+    vim.fn.mkdir(vim.fs.dirname(file), "p")
+    vim.fn.writefile({ "35137", "1133797", "ILS-271.2085.0" }, file)
+    assert(kotlin_lsp._shared_server_pid(root) == 1133797)
+    vim.fn.delete(file)
+end)
