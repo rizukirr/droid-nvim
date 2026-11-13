@@ -656,3 +656,30 @@ check("the shared server's pid comes from the router's port file", function()
     assert(kotlin_lsp._shared_server_pid(root) == 1133797)
     vim.fn.delete(file)
 end)
+
+local droid_dap = require "droid.lsp.dap"
+
+check("dap launch arguments carry the tool and absolute paths, and read the env file", function()
+    local env_file = vim.fn.tempname()
+    vim.fn.writefile({ "# comment", "export A=1", 'B="two words"', "C=3 # trailing" }, env_file)
+    local args = assert(droid_dap._launch_arguments({
+        type = "intellij_gradle",
+        request = "launch",
+        mainClass = "MainKt",
+        cwd = "app",
+        envFile = env_file,
+        env = { A = "override" },
+        gradleArgs = { "--offline" },
+    }, "/proj"))
+    assert(args.tool == "gradle" and args.cwd == "/proj/app", vim.inspect(args))
+    assert(vim.deep_equal(args.env, { A = "override", B = "two words", C = "3" }), vim.inspect(args.env))
+    assert(args.envFile == nil and vim.deep_equal(args.toolArgs, { "--offline" }))
+    assert(args.console == "internalConsole")
+
+    local legacy =
+        droid_dap._launch_arguments({ type = "intellij_debugger", request = "launch", mainClass = "X" }, "/p")
+    assert(legacy.tool == "java")
+    local missing, err = droid_dap._launch_arguments({ type = "intellij_jvm", request = "launch" }, "/p")
+    assert(missing == nil and err:find "mainClass", err)
+    vim.fn.delete(env_file)
+end)

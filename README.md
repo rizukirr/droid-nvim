@@ -306,17 +306,20 @@ The Kotlin LSP attaches to the decompiled buffer, so hover, go-to-definition, do
 #### Debugging (optional, requires nvim-dap)
 
 droid stays dependency-free and does not bundle nvim-dap. If you already use it,
-wire the Kotlin debug adapter in two lines:
+wire the Kotlin debug adapters:
 
 ```lua
 local dap = require("dap")
-dap.adapters.intellij_debugger = require("droid.lsp.dap").adapter()
-dap.configurations.kotlin = require("droid.lsp.dap").default_configs()
+local droid_dap = require("droid.lsp.dap")
+for type, adapter in pairs(droid_dap.adapters()) do
+    dap.adapters[type] = adapter
+end
+dap.configurations.kotlin = droid_dap.default_configs()
 ```
 
-The adapter starts the kotlin-lsp debug server and resolves classpath, the Java
-executable, and the main-class location automatically. Requires `kotlin_ls` to
-be attached.
+There are two configuration types. `intellij_jvm` runs the main class on a plain JVM, and `intellij_gradle` runs it through Gradle. The old name `intellij_debugger` still works and behaves like `intellij_jvm`. The server finds the module, class path and Java of the main class itself, so a configuration needs only `mainClass`, best with `file` set to its source file. The default configurations ask for the class and use the current buffer as `file`.
+
+A configuration can also set `args`, `vmArgs`, `cwd`, `env`, `envFile` and `stepFilters`. A Gradle configuration takes `gradleArgs` too. A relative `cwd` or `envFile` starts at the project root. Program output shows in the nvim-dap REPL and console. Requires `kotlin_ls` to be attached.
 
 ### Editor experience (Kotlin)
 
