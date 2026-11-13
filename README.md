@@ -293,6 +293,17 @@ require("oil").setup {
 
 For nvim-tree or neo-tree, [nvim-lsp-file-operations](https://github.com/antosha417/nvim-lsp-file-operations) fills the same role.
 
+#### Fixes and refactorings
+
+Code actions are cheap to list: kotlin-lsp offers each fix as a reference and performs it only when you pick it. The server applies the project's inspection profile from `.idea/inspectionProfiles`, so the warnings match Android Studio's for the same project.
+
+Some fixes need more than an edit, and droid handles the server's requests for them:
+
+- A refactoring that finds problems lists them in the quickfix list and asks whether to continue. Nothing changes on "Cancel".
+- A fix with several variants offers them through `vim.ui.select`.
+- A fix that ends in a rename, such as an introduced variable, starts `vim.lsp.buf.rename()` on it.
+- "Copy reference" style actions put the text in the `+` and unnamed registers.
+
 #### Decompilation
 
 Navigating to a class from a dependency (e.g., go-to-definition on a library symbol) automatically decompiles the `.class` file via `jar://` and `jrt://` protocol handlers.

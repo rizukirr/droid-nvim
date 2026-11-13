@@ -4,6 +4,7 @@ local config = require "droid.config"
 local install = require "droid.lsp.shared.install"
 local lsp_client = require "droid.lsp.client"
 local sync = require "droid.lsp.kotlin.sync"
+local extensions = require "droid.lsp.kotlin.extensions"
 
 local M = {}
 
@@ -332,10 +333,9 @@ end
 ---@param kotlin_cfg table
 ---@return table
 function M._init_options(kotlin_cfg)
-    if not kotlin_cfg.jdk_for_symbol_resolution then
-        return vim.empty_dict()
-    end
-    return { defaultSdk = kotlin_cfg.jdk_for_symbol_resolution }
+    local opts = vim.deepcopy(extensions.init_options)
+    opts.defaultSdk = kotlin_cfg.jdk_for_symbol_resolution
+    return opts
 end
 
 ---@param cfg table Full plugin config
@@ -410,6 +410,7 @@ function M.start(cfg)
             textDocument = {
                 inlayHint = { dynamicRegistration = true },
             },
+            experimental = extensions.capabilities,
         },
         -- A shared server can stop under this editor: another Neovim ran
         -- :DroidLspRestart. Reconnect, which reaches the new server or starts one.
@@ -431,7 +432,7 @@ function M.start(cfg)
                 routed_ids[c.id] = true
             end
         end,
-        handlers = {
+        handlers = vim.tbl_extend("error", extensions.handlers, {
             ["workspace/configuration"] = function(_, params, _)
                 return M._workspace_configuration(kotlin_cfg, params.items)
             end,
@@ -444,7 +445,7 @@ function M.start(cfg)
             ["window/showMessage"] = function(_, params, _)
                 sync.on_show_message(params)
             end,
-        },
+        }),
     })
     vim.lsp.enable "kotlin_ls"
     sync.setup_auto_reload(kotlin_cfg)
