@@ -683,3 +683,62 @@ check("dap launch arguments carry the tool and absolute paths, and read the env 
     assert(missing == nil and err:find "mainClass", err)
     vim.fn.delete(env_file)
 end)
+
+local ext = require "droid.lsp.kotlin.extensions"
+
+check("kotlin-lsp gets lazy intentions, the inspection profile and the intellij capabilities", function()
+    local opts = kotlin_lsp._init_options {}
+    assert(opts.lazyIntentions == true and opts.importInspectionProfile == true, vim.inspect(opts))
+    assert(kotlin_lsp._init_options({ jdk_for_symbol_resolution = "/jdk" }).defaultSdk == "/jdk")
+    for _, cap in ipairs { "conflictView", "actionChooser", "copyToClipboard", "runEditorCommand" } do
+        assert(ext.capabilities[cap] == true, cap)
+    end
+end)
+
+check("showConflicts lists conflicts in quickfix and answers the user's choice", function()
+    local params = {
+        title = "Problems detected",
+        continueLabel = "Continue",
+        cancelLabel = "Cancel",
+        conflicts = {
+            {
+                messages = { "Name clash", "with x" },
+                location = { uri = "file:///p/A.kt", range = { start = { line = 2, character = 4 } } },
+            },
+            { messages = { "In a library" }, location = vim.NIL },
+        },
+    }
+    local real = vim.fn.confirm
+    local asked
+    vim.fn.confirm = function(msg, choices)
+        asked = msg .. "\n" .. choices
+        return 1
+    end
+    assert(ext.show_conflicts(nil, params).decision == "continue")
+    vim.fn.confirm = function()
+        return 0
+    end
+    assert(ext.show_conflicts(nil, params).decision == "cancel")
+    vim.fn.confirm = real
+    assert(asked:find("A.kt:3: Name clash with x", 1, true) and asked:find("&Continue", 1, true), asked)
+    local qf = vim.fn.getqflist()
+    assert(#qf == 2 and qf[1].lnum == 3 and qf[1].col == 5 and qf[2].text == "In a library", vim.inspect(qf))
+end)
+
+check("runEditorCommand runs a known command only for the current buffer", function()
+    local ran = 0
+    ext.editor_commands["test.cmd"] = function()
+        ran = ran + 1
+    end
+    ext.run_editor_command(nil, { command = "test.cmd", uri = vim.uri_from_bufnr(0) })
+    ext.run_editor_command(nil, { command = "test.cmd", uri = "file:///elsewhere.kt" })
+    ext.run_editor_command(nil, { command = "unknown.cmd" })
+    vim.wait(100)
+    assert(ran == 1, ran)
+    ext.editor_commands["test.cmd"] = nil
+end)
+
+check("copyToClipboard fills the unnamed register", function()
+    ext.copy_to_clipboard(nil, { content = "com.example.Foo" })
+    assert(vim.fn.getreg '"' == "com.example.Foo")
+end)
