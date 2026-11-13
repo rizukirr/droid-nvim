@@ -742,3 +742,19 @@ check("copyToClipboard fills the unnamed register", function()
     ext.copy_to_clipboard(nil, { content = "com.example.Foo" })
     assert(vim.fn.getreg '"' == "com.example.Foo")
 end)
+
+local related = require "droid.lsp.kotlin.related_tests"
+
+check("Go to Test drops a whole-file target its declaration already covers", function()
+    local function loc(uri, l1, c1, l2, c2)
+        return { uri = uri, range = { start = { line = l1, character = c1 }, ["end"] = { line = l2, character = c2 } } }
+    end
+    local t = related._targets {
+        loc("file:///p/Calculator.kt", 0, 0, 0, 0),
+        loc("file:///p/Calculator.kt", 0, 6, 0, 16),
+        loc("file:///p/OnlyFile.kt", 0, 0, 0, 0),
+    }
+    assert(#t == 2 and t[1].range.start.character == 6 and t[2].uri == "file:///p/OnlyFile.kt", vim.inspect(t))
+    assert(related._no_results_message { isTest = false, sourceName = "Calculator" } == "No tests found for Calculator")
+    assert(related._no_results_message { isTest = true, sourceName = vim.NIL } == "No test subjects found")
+end)

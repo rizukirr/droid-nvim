@@ -490,6 +490,7 @@ These commands work in `.kt` and `.groovy` buffers with their respective LSP att
 | `:DroidSymbols` | Document symbols (opens location list - navigate with `:lnext`, `:lprev`, `:lfirst`, `:llast`) |
 | `:DroidWorkspaceSymbols` | Workspace symbol search (opens location list - navigate with `:lnext`, `:lprev`) |
 | `:DroidReferences` | Find all references (opens quickfix list - navigate with `:cnext`, `:cprev`, `:cfirst`, `:clast`) |
+| `:DroidGoToTest` | Jump from a class to its tests, or from a test to the class it tests (Kotlin only) |
 | `:DroidCallHierarchy [incoming\|outgoing]` | Calls to the symbol under the cursor, or calls it makes (default `incoming`) |
 | `:DroidTypeHierarchy [subtypes\|supertypes]` | Implementations of the type under the cursor, or its base types (default `subtypes`) |
 | `:DroidRename` | Rename symbol |
@@ -530,6 +531,7 @@ vim.keymap.set("n", "<leader>ao", ":DroidImports<CR>")
 vim.keymap.set("n", "<leader>af", ":DroidFormat<CR>")
 vim.keymap.set("n", "gs", ":DroidWorkspaceSymbols<CR>")
 vim.keymap.set("n", "gr", ":DroidReferences<CR>")
+vim.keymap.set("n", "<leader>gt", ":DroidGoToTest<CR>")
 
 -- Android Studio (needs Studio running with the project open)
 vim.keymap.set("n", "<leader>aL", ":DroidLint<CR>")

@@ -226,6 +226,11 @@ function M.setup()
         require("droid.lsp.diagnostics").toggle_hints()
     end, {})
 
+    -- Jump between a test and the code it tests (Kotlin LSP specific)
+    cmd("DroidGoToTest", function()
+        require("droid.lsp.kotlin.related_tests").go()
+    end, {})
+
     -- Export Workspace (Kotlin LSP specific)
     cmd("DroidExportWorkspace", function()
         local c = client.kotlin { bufnr = 0 }
