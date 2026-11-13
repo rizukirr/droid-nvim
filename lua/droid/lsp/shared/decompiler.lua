@@ -77,6 +77,13 @@ function M._decompile(buf, uri, client)
             vim.bo[buf].buftype = "nofile"
             vim.bo[buf].swapfile = false
             vim.bo[buf].filetype = lang:lower()
+
+            -- vim.lsp.enable skips nofile buffers, so attach by hand: the
+            -- server resolves jar:// and jrt:// documents, which gives
+            -- hover and go-to-definition inside library sources.
+            if not vim.lsp.buf_is_attached(buf, client.id) then
+                vim.lsp.buf_attach_client(buf, client.id)
+            end
         end)
     end)
 end

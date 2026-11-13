@@ -138,6 +138,9 @@ local HINTS = {
     { "call_chains", "hints.call.chains", false },
 }
 
+--- The section kotlin-lsp requests in workspace/configuration for inlay hints.
+local HINTS_SECTION = "jetbrains.kotlin"
+
 local function hint_value(ih, hint)
     if hint[3] then
         return ih[hint[1]] ~= false
@@ -162,11 +165,25 @@ local function make_settings(kotlin_cfg)
     return s
 end
 
+--- Environment for the server process. The launcher reads extra JVM options
+--- from IJ_JAVA_OPTIONS before the JVM starts, appended to any inherited value.
+---@param kotlin_cfg table Kotlin LSP config
+---@return table|nil
+function M._launch_env(kotlin_cfg)
+    local args = kotlin_cfg.jvm_args or {}
+    if #args == 0 then
+        return nil
+    end
+    local current = vim.env.IJ_JAVA_OPTIONS
+    local extra = table.concat(args, " ")
+    return { IJ_JAVA_OPTIONS = (current and current ~= "") and (current .. " " .. extra) or extra }
+end
+
 --- Build response for workspace/configuration request.
 ---@param kotlin_cfg table Kotlin LSP config
 ---@param items table[] params.items from the LSP request
 ---@return table[]
-local function handle_workspace_configuration(kotlin_cfg, items)
+function M._workspace_configuration(kotlin_cfg, items)
     local ih = kotlin_cfg.inlay_hints or {}
     local by_section = {}
     for _, hint in ipairs(HINTS) do
@@ -178,7 +195,19 @@ local function handle_workspace_configuration(kotlin_cfg, items)
     local results = {}
     for _, item in ipairs(items) do
         local hint = by_section[item.section or ""]
-        if hint then
+        if item.section == HINTS_SECTION then
+            -- The server asks for the whole section and joins nested keys
+            -- with ".", so flat dotted keys reach it unchanged.
+            local all = {}
+            for _, h in ipairs(HINTS) do
+                local v = hint_value(ih, h)
+                all[h[2]] = v
+                if h[4] then
+                    all[h[4]] = v
+                end
+            end
+            table.insert(results, all)
+        elseif hint then
             table.insert(results, hint_value(ih, hint))
         else
             table.insert(results, vim.NIL)
@@ -244,14 +273,6 @@ function M.start(cfg)
             )
             return
         end
-        if next(kotlin_cfg.jvm_args or {}) then
-            vim.notify(
-                "droid.nvim: lsp.kotlin.jvm_args is ignored with the native kotlin-lsp launcher - edit "
-                    .. pkg_dir
-                    .. "/bin/intellij-server.vmoptions instead",
-                vim.log.levels.WARN
-            )
-        end
         cmd = { launcher, "--stdio", "--system-path", ws }
     else
         -- Using binary from PATH
@@ -276,6 +297,7 @@ function M.start(cfg)
 
     vim.lsp.config("kotlin_ls", {
         cmd = cmd,
+        cmd_env = M._launch_env(kotlin_cfg),
         filetypes = { "kotlin" },
         root_markers = root_markers,
         settings = settings,
@@ -287,7 +309,7 @@ function M.start(cfg)
         },
         handlers = {
             ["workspace/configuration"] = function(_, params, _)
-                return handle_workspace_configuration(kotlin_cfg, params.items)
+                return M._workspace_configuration(kotlin_cfg, params.items)
             end,
             ["intellij/importLog"] = function(_, params, _)
                 sync.on_import_log(kotlin_cfg, params)

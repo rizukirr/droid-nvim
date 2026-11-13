@@ -538,3 +538,29 @@ check("layout asks the CLI for pretty JSON from one device, full on request", fu
     local ran = vim.fn.readfile(cli_args)[1]
     assert(done == true and ran == "layout --pretty --output=/tmp/out.json --device=emulator-5554 --full", ran)
 end)
+
+local kotlin_lsp = require "droid.lsp.kotlin"
+
+check("the jetbrains.kotlin section carries every inlay hint as a flat key", function()
+    local res = kotlin_lsp._workspace_configuration({ inlay_hints = { call_chains = true, parameters = false } }, {
+        { section = "jetbrains.kotlin" },
+        { section = "hints.call.chains" },
+        { section = "unknown" },
+    })
+    local all = res[1]
+    assert(all["hints.call.chains"] == true, vim.inspect(all))
+    assert(all["hints.parameters"] == false, vim.inspect(all))
+    assert(all["hints.parameters.compiled"] == true, vim.inspect(all))
+    assert(all["hints.parameters.excluded"] == false, vim.inspect(all))
+    assert(all["hints.settings.types.property"] == true and all["hints.types.property"] == true, vim.inspect(all))
+    assert(res[2] == true and res[3] == vim.NIL, vim.inspect(res))
+end)
+
+check("jvm_args reach the launcher through IJ_JAVA_OPTIONS", function()
+    vim.env.IJ_JAVA_OPTIONS = nil
+    assert(kotlin_lsp._launch_env {} == nil)
+    assert(kotlin_lsp._launch_env({ jvm_args = { "-Xmx4g", "-Dx=1" } }).IJ_JAVA_OPTIONS == "-Xmx4g -Dx=1")
+    vim.env.IJ_JAVA_OPTIONS = "-Dkeep=1"
+    assert(kotlin_lsp._launch_env({ jvm_args = { "-Xmx4g" } }).IJ_JAVA_OPTIONS == "-Dkeep=1 -Xmx4g")
+    vim.env.IJ_JAVA_OPTIONS = nil
+end)

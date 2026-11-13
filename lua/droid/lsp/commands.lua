@@ -233,13 +233,21 @@ function M.setup()
             vim.notify("kotlin_ls not attached (required for workspace export)", vim.log.levels.WARN)
             return
         end
-        client.run_command_on("kotlin_ls", "exportWorkspace", { vim.fn.getcwd() }, function(err, result)
+        local dir = vim.fn.getcwd()
+        client.run_command_on("kotlin_ls", "exportWorkspace", { dir }, function(err, result)
             vim.schedule(function()
                 if err then
                     vim.notify("Export failed: " .. tostring(err), vim.log.levels.ERROR)
                     return
                 end
-                if not result then
+                if not result or result == vim.NIL then
+                    -- kotlin-lsp writes <dir>/workspace.json and returns null.
+                    local file = dir .. "/workspace.json"
+                    if vim.fn.filereadable(file) == 1 then
+                        vim.cmd.edit(vim.fn.fnameescape(file))
+                    else
+                        vim.notify("Export finished but " .. file .. " was not found", vim.log.levels.WARN)
+                    end
                     return
                 end
                 vim.cmd "enew"
