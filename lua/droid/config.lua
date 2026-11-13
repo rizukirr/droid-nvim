@@ -32,6 +32,10 @@ local defaults = {
             -- kotlin-lsp has no Compose support, so it reports every @Composable
             -- function as badly named; Android Studio and ktlint both exempt them.
             suppress_when_annotated = { FunctionName = { "Composable" } },
+            -- Share one kotlin-lsp between Neovim instances on the same project
+            -- through the lsp-router that ships with kotlin-lsp 271+. The server
+            -- outlives Neovim and exits 10s after its last client leaves.
+            shared_server = true,
             auto_reload = true, -- Reload the LSP workspace when a build file (build.gradle, pom.xml, …) is saved
             inlay_hints = {
                 enabled = true,

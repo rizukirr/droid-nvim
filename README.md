@@ -113,6 +113,7 @@ require("droid").setup({
             jvm_args = {},                 -- extra server JVM options, e.g. { "-Xmx4g" }
             root_markers = nil,
             import_progress = "progress",  -- "progress" (LSP progress) or "off"
+            shared_server = true,          -- share one server between Neovim instances (kotlin-lsp 271+)
             auto_reload = true,            -- reload the workspace when a build file is saved
             suppress_diagnostics = {},     -- e.g. { "PackageDirectoryMismatch" }
             -- Hide a code only on declarations carrying one of the annotations
@@ -189,6 +190,14 @@ For each LSP, droid.nvim searches in this order:
 4. **Install via Mason** — If not found, asks whether to install it
 
 Java is resolved similarly: `lsp.jre_path` config → `$JAVA_HOME` → system `java`. (kotlin-lsp is exempt — its native launcher ships a bundled JBR.)
+
+#### Shared server
+
+kotlin-lsp 271 and later ship `lsp-router` beside the server. When it is there, droid starts kotlin-lsp through it, and every Neovim open on the same project uses one server. The second instance attaches to a server that has already imported the project, and the project is held in memory once.
+
+The server is no longer a child of Neovim. It keeps running while any Neovim uses it and exits 10 seconds after the last one leaves. `:DroidLspStop` and quitting Neovim end only that editor's session. `:DroidLspRestart` and `:DroidCleanWorkspace` stop the server itself. Other Neovim instances on the project lose their connection for a moment and then reconnect on their own, to the restarted server or to a new one.
+
+Set `lsp.kotlin.shared_server = false` to give each Neovim its own server again. Older kotlin-lsp builds have no router and always run one server per Neovim.
 
 #### Server memory
 
@@ -479,9 +488,9 @@ These commands work in `.kt` and `.groovy` buffers with their respective LSP att
 | `:DroidLspLog` | Open the Kotlin LSP project-sync log |
 | `:DroidKdoc` | Generate a KDoc stub for the Kotlin function under the cursor |
 | `:DroidExportWorkspace` | Write the Kotlin LSP's imported project model to `workspace.json` and open it |
-| `:DroidCleanWorkspace` | Stop all LSPs and clean cached workspaces |
-| `:DroidLspStop` | Stop all LSP servers |
-| `:DroidLspRestart` | Restart all LSP servers |
+| `:DroidCleanWorkspace` | Stop all LSPs, shared Kotlin servers included, and clean cached workspaces |
+| `:DroidLspStop` | Stop this Neovim's LSP clients (a shared Kotlin server exits once no Neovim uses it) |
+| `:DroidLspRestart` | Restart all LSP servers, shared Kotlin servers included |
 
 ## Keybindings
 
