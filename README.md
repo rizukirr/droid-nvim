@@ -183,8 +183,8 @@ Each LSP starts lazily when you first open a file of that type. If it is not ins
 
 For each LSP, droid.nvim searches in this order:
 
-1. **Mason** — `~/.local/share/nvim/mason/packages/{lsp-name}/`
-2. **Environment variable** — `$KOTLIN_LSP_DIR` or `$GROOVY_LSP_DIR`
+1. **Environment variable** — `$KOTLIN_LSP_DIR` or `$GROOVY_LSP_DIR`, when it names a directory
+2. **Mason** — `~/.local/share/nvim/mason/packages/{lsp-name}/`
 3. **System PATH** — `kotlin-lsp` or `groovy-language-server`
 4. **Install via Mason** — If not found, asks whether to install it
 

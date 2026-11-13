@@ -1,5 +1,5 @@
 --- Mason auto-install utility for droid.nvim LSPs
---- Detection order: Mason, environment variable, system PATH, then an offer to install via Mason
+--- Detection order: environment variable, Mason, system PATH, then an offer to install via Mason
 
 local M = {}
 
@@ -116,18 +116,19 @@ function M.install_via_mason(opts, on_installed)
     end)
 end
 
---- Find a package. Detection order: Mason, then the environment variable,
---- then PATH.
+--- Find a package. Detection order: the environment variable, then Mason,
+--- then PATH. A variable the user set is a deliberate choice, so it wins
+--- over a Mason install that may be older.
 ---@param opts { mason_name: string, env_var: string, binaries: string[] }
 ---@return { type: "mason"|"env"|"binary", path: string }|nil
 function M.find(opts)
-    if M.is_mason_installed(opts.mason_name) then
-        return { type = "mason", path = M.mason_path(opts.mason_name) }
-    end
-
     local env = vim.env[opts.env_var]
     if env and vim.fn.isdirectory(env) == 1 then
         return { type = "env", path = env }
+    end
+
+    if M.is_mason_installed(opts.mason_name) then
+        return { type = "mason", path = M.mason_path(opts.mason_name) }
     end
 
     local bin = M.first_executable(opts.binaries)

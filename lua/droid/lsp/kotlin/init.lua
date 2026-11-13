@@ -22,7 +22,7 @@ local initialised = false
 ---------------------------------------------------------------------------
 
 --- Find kotlin-lsp package directory
---- Detection order: Mason, KOTLIN_LSP_DIR, system PATH, then an install offer
+--- Detection order: KOTLIN_LSP_DIR, Mason, system PATH, then an install offer
 ---@return { type: string, path: string }|nil
 local function find_kotlin_lsp()
     return install.find_or_install(M.PACKAGE, function()
@@ -346,18 +346,17 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
-function M.stop()
-    for _, c in ipairs(lsp_client.all { name = lsp_client.LSP_NAMES.kotlin }) do
-        c:stop()
-    end
+--- Stop the server. `on_done` runs once its process has exited.
+---@param on_done? fun()
+function M.stop(on_done)
+    lsp_client.stop_and_wait(lsp_client.all { name = lsp_client.LSP_NAMES.kotlin }, on_done or function() end)
 end
 
 function M.restart()
-    M.stop()
-    initialised = false
-    vim.defer_fn(function()
+    M.stop(function()
+        initialised = false
         M.start(config.get())
-    end, 500)
+    end)
 end
 
 --- Setup Kotlin LSP (called from main lsp/init.lua)

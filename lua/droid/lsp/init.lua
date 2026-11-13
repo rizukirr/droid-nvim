@@ -21,39 +21,34 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
---- Stop all LSP servers
-function M.stop()
-    get_kotlin().stop()
-    get_groovy().stop()
+--- Stop all LSP servers. `on_done` runs once every server process has exited.
+---@param on_done? fun()
+function M.stop(on_done)
+    require("droid.lsp.client").stop_and_wait(M.get_clients(), on_done or function() end)
 end
 
 --- Clean all workspace caches
 function M.clean_workspace()
-    M.stop()
-
-    local kotlin = get_kotlin()
-
-    -- Clean Kotlin workspace
-    local kotlin_dir = kotlin.workspace_cache_dir()
-    if vim.fn.isdirectory(kotlin_dir) == 1 then
-        vim.fn.delete(kotlin_dir, "rf")
-    end
-
-    vim.notify("droid.nvim: All workspace caches removed", vim.log.levels.INFO)
+    -- Wait for the servers to exit: a running kotlin-lsp still holds its
+    -- workspace database.
+    M.stop(function()
+        local kotlin_dir = get_kotlin().workspace_cache_dir()
+        if vim.fn.isdirectory(kotlin_dir) == 1 then
+            vim.fn.delete(kotlin_dir, "rf")
+        end
+        vim.notify("droid.nvim: All workspace caches removed", vim.log.levels.INFO)
+    end)
 end
 
---- Restart all LSP servers
+--- Restart all LSP servers. Each one waits for its old process to exit.
 function M.restart()
-    M.stop()
-    vim.defer_fn(function()
-        local cfg = config.get()
-        if cfg.lsp.kotlin and cfg.lsp.kotlin.enabled ~= false then
-            get_kotlin().restart()
-        end
-        if cfg.lsp.groovy and cfg.lsp.groovy.enabled ~= false then
-            get_groovy().restart()
-        end
-    end, 500)
+    local cfg = config.get()
+    if cfg.lsp.kotlin and cfg.lsp.kotlin.enabled ~= false then
+        get_kotlin().restart()
+    end
+    if cfg.lsp.groovy and cfg.lsp.groovy.enabled ~= false then
+        get_groovy().restart()
+    end
 end
 
 --- Get all active LSP clients managed by droid.nvim
@@ -82,8 +77,9 @@ function M.setup()
     -- Register global LSP commands
     vim.api.nvim_create_user_command("DroidCleanWorkspace", M.clean_workspace, {})
     vim.api.nvim_create_user_command("DroidLspStop", function()
-        M.stop()
-        vim.notify("droid.nvim: All LSP servers stopped", vim.log.levels.INFO)
+        M.stop(function()
+            vim.notify("droid.nvim: All LSP servers stopped", vim.log.levels.INFO)
+        end)
     end, {})
     vim.api.nvim_create_user_command("DroidLspRestart", M.restart, {})
 
