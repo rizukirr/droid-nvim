@@ -86,6 +86,10 @@ function M.setup_commands()
         logcat.stop()
     end, {})
 
+    vim.api.nvim_create_user_command("DroidStackTrace", function()
+        require("droid.stacktrace").to_quickfix()
+    end, {})
+
     vim.api.nvim_create_user_command("DroidLogcatClear", function()
         logcat.clear()
     end, {})

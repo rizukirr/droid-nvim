@@ -472,10 +472,13 @@ With `XDG_CONFIG_HOME` set, Studio registers itself in `$XDG_CONFIG_HOME/.androi
 | `:DroidLogcatFilter tag=MyTag` | Filter by tag |
 | `:DroidLogcatFilter package=mine` | Filter by package |
 | `:DroidLogcatFilter grep=Exception` | Keep lines containing the text |
+| `:DroidStackTrace` | Put the stack trace under the cursor, or the last one in the panel, into the quickfix list |
 | `:DroidLogcatClear` | Clear the logcat buffer (keeps streaming) |
 | `:DroidLogcatStop` | Stop logcat |
 
 Combine filters: `:DroidLogcatFilter tag=MyTag log_level=d`
+
+Press `gf` on a stack frame in logcat or in build output to open the source line it points to. `:DroidStackTrace` puts the trace under the cursor, or the last one in the panel, into the quickfix list: the frames of your project jump to their source, and the rest of the trace stays as text, in order. Frames of libraries and of Android itself are not in the project, so they do not jump.
 
 The panel scrolls with new lines while the cursor is on the last line. Move up to read back, and it stops following until you return to the bottom. When filtering by package, logcat follows the app to its new process after a crash or relaunch, keeping the lines already shown.
 
