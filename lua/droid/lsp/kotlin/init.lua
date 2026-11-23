@@ -115,14 +115,33 @@ function M._server_cmd(launcher, ws, kotlin_cfg, router)
     return { launcher, "--stdio", "--system-path", ws }
 end
 
+--- The router keys a server by the workspace root and refuses a client that
+--- has none, such as a lone file outside any project. That client gets a
+--- server of its own instead.
+---@param routed string[]
+---@param own string[]
+---@return string[]|fun(dispatchers: table, config: table): table
+function M._cmd_for_root(routed, own)
+    if routed[1] == own[1] then
+        return own
+    end
+    return function(dispatchers, cfg)
+        return vim.lsp.rpc.start(cfg.root_dir and routed or own, dispatchers, {
+            cwd = cfg.cmd_cwd,
+            env = cfg.cmd_env,
+            detached = cfg.detached,
+        })
+    end
+end
+
 -- Clients that reach their server through the router.
 local routed_ids = {}
+local sharing = false
 
 ---@param c vim.lsp.Client
 ---@return boolean
 local function is_routed(c)
-    local exe = c.config.cmd and type(c.config.cmd) == "table" and c.config.cmd[1]
-    return type(exe) == "string" and vim.fs.basename(exe):match "^lsp%-router" ~= nil
+    return sharing and c.root_dir ~= nil
 end
 
 --- Where a shared server publishes its port, pid and build, one line each.
@@ -377,11 +396,17 @@ function M.start(cfg)
             )
             return
         end
-        cmd = M._server_cmd(launcher, ws, kotlin_cfg)
+        cmd = launcher
     else
         -- Using binary from PATH
-        cmd = M._server_cmd(lsp_info.path, ws, kotlin_cfg)
+        cmd = lsp_info.path
     end
+    local routed_cmd = M._server_cmd(cmd, ws, kotlin_cfg)
+    -- A server holds its instance directory alone, so the one beside a
+    -- shared server needs another.
+    local own_ws = routed_cmd[1] == cmd and ws or ws .. "-own"
+    cmd = M._cmd_for_root(routed_cmd, M._server_cmd(cmd, own_ws, kotlin_cfg, false))
+    sharing = type(cmd) == "function"
 
     local settings = make_settings(kotlin_cfg)
     local init_opts = M._init_options(kotlin_cfg)
@@ -395,6 +420,7 @@ function M.start(cfg)
             "build.gradle",
             "build.gradle.kts",
             "pom.xml",
+            "project.yaml", -- kotlin-toolchain (Amper)
             "AndroidManifest.xml",
             ".git",
         }
