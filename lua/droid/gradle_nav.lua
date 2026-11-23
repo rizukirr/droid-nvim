@@ -56,10 +56,27 @@ function M.module(mods)
     open(path, mods, "module build.gradle(.kts)")
 end
 
+-- Build script of the nearest root that has one. An included build such as
+-- build-logic/ often has a settings script but no build script, so the
+-- search climbs to the outer project.
+local function find_project_build(from)
+    local root = find_root(from)
+    while root do
+        local path = first_in(root, BUILD_FILES)
+        if path then
+            return path
+        end
+        local parent = vim.fs.dirname(root)
+        if parent == root then
+            return nil
+        end
+        root = find_root(parent)
+    end
+end
+
 ---@param mods string
 function M.project(mods)
-    local root = find_root(start_dir())
-    open(root and first_in(root, BUILD_FILES), mods, "project build.gradle(.kts)")
+    open(find_project_build(start_dir()), mods, "project build.gradle(.kts)")
 end
 
 ---@param mods string
@@ -68,10 +85,16 @@ function M.settings(mods)
     open(root and first_in(root, SETTINGS_FILES), mods, "settings.gradle(.kts)")
 end
 
+-- Nearest gradle/libs.versions.toml above `from`. An included build such as
+-- build-logic/ has its own settings script but shares the outer project's
+-- catalog, so the search climbs past nested roots.
+local function find_catalog(from)
+    return vim.fs.find("gradle/libs.versions.toml", { path = from, upward = true })[1]
+end
+
 ---@param mods string
 function M.version(mods)
-    local root = find_root(start_dir())
-    open(root and first_in(root, { "gradle/libs.versions.toml" }), mods, "gradle/libs.versions.toml")
+    open(find_catalog(start_dir()), mods, "gradle/libs.versions.toml")
 end
 
 return M
