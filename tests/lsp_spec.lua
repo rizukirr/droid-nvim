@@ -646,6 +646,24 @@ check("kotlin-lsp starts through lsp-router unless shared_server is false", func
     assert(vim.deep_equal(kotlin_lsp._server_cmd("/s/bin/intellij-server", "/ws", {}, false), own))
 end)
 
+check("a client with no workspace root gets its own server, the router refuses it", function()
+    local own = { "/bin/cat" }
+    assert(kotlin_lsp._cmd_for_root(own, own) == own)
+    local cmd = kotlin_lsp._cmd_for_root({ "/nonexistent/lsp-router" }, own)
+    assert(type(cmd) == "function")
+    local started
+    local real_start = vim.lsp.rpc.start
+    vim.lsp.rpc.start = function(argv)
+        started = argv
+        return {}
+    end
+    cmd({}, { root_dir = nil })
+    assert(started == own)
+    cmd({}, { root_dir = "/p" })
+    assert(started[1] == "/nonexistent/lsp-router")
+    vim.lsp.rpc.start = real_start
+end)
+
 check("the shared server's pid comes from the router's port file", function()
     local root = "/tmp/droid-test-root-" .. vim.fn.getpid()
     local file = kotlin_lsp._port_file(root)
